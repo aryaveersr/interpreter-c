@@ -1,3 +1,5 @@
+#include "chunk.h"
+#include "compiler.h"
 #include "lexer.h"
 #include "vm.h"
 #include <stdbool.h>
@@ -8,26 +10,20 @@
 static InterpretResult run_source(const char *source) {
   lexer_init(source);
 
-  int line = -1;
+  Chunk chunk;
+  chunk_init(&chunk);
 
-  while (true) {
-    Token token = lexer_next();
-
-    if (token.line != line) {
-      printf("%4d ", token.line);
-      line = token.line;
-    } else {
-      printf("   | ");
-    }
-
-    printf("%2d '%.*s'\n", token.kind, token.len, token.start);
-
-    if (token.kind == TOKEN_EOF) {
-      break;
-    }
+  if (!compiler_compile(&chunk)) {
+    chunk_free(&chunk);
+    return INTERPRET_COMPILE_ERROR;
   }
 
-  return INTERPRET_OK;
+  chunk_print(&chunk, "Code");
+
+  InterpretResult result = vm_interpret(&chunk);
+
+  chunk_free(&chunk);
+  return result;
 }
 
 static void repl(void) {

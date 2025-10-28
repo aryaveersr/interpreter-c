@@ -19,6 +19,8 @@ void lexer_init(const char *source) {
   lexer.start = source;
   lexer.next = source;
   lexer.line = 1;
+
+  BUFFER_CLEAR();
 }
 
 static char lx_advance(void) {
