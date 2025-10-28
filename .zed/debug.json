@@ -1,0 +1,13 @@
+[
+  {
+    "label": "Debug binary",
+    "build": {
+      "command": "make",
+      "args": ["debug"],
+      "cwd": "$ZED_WORKTREE_ROOT"
+    },
+    "program": "$ZED_WORKTREE_ROOT/bin/lang-dbg.out",
+    "request": "launch",
+    "adapter": "CodeLLDB"
+  }
+]

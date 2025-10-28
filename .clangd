@@ -1,0 +1,10 @@
+CompileFlags:
+  Add: [
+  -xc,
+  -std=c17,
+  -I../include,
+  -Wall,
+  -Wextra,
+  -Wpedantic,
+  -Wimplicit-fallthrough
+]
