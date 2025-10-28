@@ -3,11 +3,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-static int instruction_simple(const char *name, int offset) {
-  printf("%s\n", name);
-  return offset + 1;
-}
-
 static int instruction_const(const char *name, Chunk *chunk, int offset) {
   uint8_t idx = chunk->code[offset + 1];
 
@@ -20,15 +15,23 @@ static int instruction_const(const char *name, Chunk *chunk, int offset) {
 
 int chunk_print_instr(Chunk *chunk, int offset) {
   printf("%04d %4d ", offset, chunk_get_line(chunk, offset));
-
   uint8_t instr = chunk->code[offset];
+
+#define SIMPLE_INSTR(name)                                                     \
+  case name:                                                                   \
+    printf(#name "\n");                                                        \
+    return offset + 1
 
 #pragma clang diagnostic push
 #pragma clang diagnostic warning "-Wswitch-enum"
 
   switch ((OpCode)instr) {
-  case OP_RETURN:
-    return instruction_simple("OP_RETURN", offset);
+    SIMPLE_INSTR(OP_RETURN);
+    SIMPLE_INSTR(OP_NEGATE);
+    SIMPLE_INSTR(OP_ADD);
+    SIMPLE_INSTR(OP_SUBTRACT);
+    SIMPLE_INSTR(OP_MULTIPLY);
+    SIMPLE_INSTR(OP_DIVIDE);
 
   case OP_LOAD:
     return instruction_const("OP_LOAD", chunk, offset);
@@ -39,6 +42,7 @@ int chunk_print_instr(Chunk *chunk, int offset) {
   }
 
 #pragma clang diagnostic pop
+#undef SIMPLE_INSTR
 }
 
 void chunk_print(Chunk *chunk, const char *name) {
