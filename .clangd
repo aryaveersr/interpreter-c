@@ -6,5 +6,6 @@ CompileFlags:
   -Wall,
   -Wextra,
   -Wpedantic,
-  -Wimplicit-fallthrough
+  -Wimplicit-fallthrough,
+  -Wno-empty-translation-unit
 ]
