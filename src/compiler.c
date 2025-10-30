@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include "chunk.h"
 #include "lexer.h"
+#include "value.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,7 +97,19 @@ static void c_expr_primary(void) {
     break;
 
   case TOKEN_NUMBER:
-    c_emit_const(strtod(next.start, NULL));
+    c_emit_const(NUMBER_VAL(strtod(next.start, NULL)));
+    break;
+
+  case TOKEN_NIL:
+    c_emit_byte(OP_NIL);
+    break;
+
+  case TOKEN_TRUE:
+    c_emit_byte(OP_TRUE);
+    break;
+
+  case TOKEN_FALSE:
+    c_emit_byte(OP_FALSE);
     break;
 
   default:
@@ -111,6 +124,12 @@ static void c_expr_unary(void) {
     c_advance();
     c_expr_primary();
     c_emit_byte(OP_NEGATE);
+    break;
+
+  case TOKEN_BANG:
+    c_advance();
+    c_expr_primary();
+    c_emit_byte(OP_NOT);
     break;
 
   default:
@@ -140,8 +159,61 @@ static void c_expr_term(void) {
   }
 }
 
-static void c_expression(void) {
+static void c_expr_comparison(void) {
   c_expr_term();
+
+  while (true) {
+    switch (c_peek().kind) {
+    case TOKEN_LESSER:
+      c_advance();
+      c_expr_term();
+      c_emit_byte(OP_LESSER);
+      continue;
+
+    case TOKEN_LESSER_EQUAL:
+      c_advance();
+      c_expr_term();
+      c_emit_byte(OP_GREATER);
+      c_emit_byte(OP_NOT);
+      continue;
+
+    case TOKEN_GREATER:
+      c_advance();
+      c_expr_term();
+      c_emit_byte(OP_GREATER);
+      continue;
+
+    case TOKEN_GREATER_EQUAL:
+      c_advance();
+      c_expr_term();
+      c_emit_byte(OP_LESSER);
+      c_emit_byte(OP_NOT);
+      continue;
+
+    case TOKEN_EQUAL_EQUAL:
+      c_advance();
+      c_expr_term();
+      c_emit_byte(OP_EQUAL);
+      continue;
+
+    case TOKEN_BANG_EQUAL:
+      c_advance();
+      c_expr_term();
+      c_emit_byte(OP_EQUAL);
+      c_emit_byte(OP_NOT);
+      continue;
+
+    default:
+      goto LOOP_END;
+    }
+  }
+
+LOOP_END:
+  (void)0;
+}
+
+static void c_expression(void) {
+  c_expr_comparison();
 }
 
 bool compiler_compile(Chunk *chunk) {

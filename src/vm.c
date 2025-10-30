@@ -1,6 +1,7 @@
 #include "vm.h"
 #include "chunk.h"
 #include "value.h"
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -23,15 +24,38 @@ static Value stack_pop(void) {
   return *vm.stack_top;
 }
 
+static Value stack_peek(int idx) {
+  return vm.stack_top[-1 - idx];
+}
+
+static void stack_reset(void) {}
+
+static void vm_runtime_error(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  vfprintf(stderr, format, args);
+  va_end(args);
+  fputs("\n", stderr);
+
+  int line = chunk_get_line(vm.chunk, (int)(vm.ip - vm.chunk->code - 1));
+  fprintf(stderr, "[Line %d] in script\n", line);
+  stack_reset();
+}
+
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (vm.chunk->consts.values[READ_BYTE()])
 
-#define BINARY_OP(label, op)                                                   \
+#define BINARY_OP(result_type, label, op)                                      \
   case label: {                                                                \
-    double b = stack_pop();                                                    \
-    double a = stack_pop();                                                    \
+    if (!IS_NUMBER(stack_peek(0)) || !IS_NUMBER(stack_peek(1))) {              \
+      vm_runtime_error("Operands must be numbers.");                           \
+      return INTERPRET_RUNTIME_ERROR;                                          \
+    }                                                                          \
                                                                                \
-    stack_push(a op b);                                                        \
+    double b = AS_NUMBER(stack_pop());                                         \
+    double a = AS_NUMBER(stack_pop());                                         \
+                                                                               \
+    stack_push(result_type(a op b));                                           \
     break;                                                                     \
   }
 
@@ -41,7 +65,6 @@ InterpretResult vm_interpret(Chunk *chunk) {
 
   while (true) {
 #ifdef TRACE_VM
-
     printf("  [STACK] ");
 
     for (Value *slot = vm.stack; slot < vm.stack_top; slot += 1) {
@@ -54,17 +77,18 @@ InterpretResult vm_interpret(Chunk *chunk) {
     chunk_print_instr(vm.chunk, (int)(vm.ip - vm.chunk->code));
 
 #endif
-
     uint8_t instr = READ_BYTE();
 
 #pragma clang diagnostic push
 #pragma clang diagnostic warning "-Wswitch-enum"
-
     switch ((OpCode)instr) {
-      BINARY_OP(OP_ADD, +);
-      BINARY_OP(OP_SUBTRACT, -);
-      BINARY_OP(OP_MULTIPLY, *);
-      BINARY_OP(OP_DIVIDE, /);
+      BINARY_OP(NUMBER_VAL, OP_ADD, +);
+      BINARY_OP(NUMBER_VAL, OP_SUBTRACT, -);
+      BINARY_OP(NUMBER_VAL, OP_MULTIPLY, *);
+      BINARY_OP(NUMBER_VAL, OP_DIVIDE, /);
+
+      BINARY_OP(BOOL_VAL, OP_LESSER, <);
+      BINARY_OP(BOOL_VAL, OP_GREATER, >);
 
     case OP_RETURN:
       value_print(stack_pop());
@@ -76,14 +100,41 @@ InterpretResult vm_interpret(Chunk *chunk) {
       break;
 
     case OP_NEGATE:
-      stack_push(-stack_pop());
+      if (!IS_NUMBER(stack_peek(0))) {
+        vm_runtime_error("Operand must be a number.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      stack_push(NUMBER_VAL(-AS_NUMBER(stack_pop())));
+      break;
+
+    case OP_NOT:
+      stack_push(BOOL_VAL(value_is_falsey(stack_pop())));
+      break;
+
+    case OP_EQUAL: {
+      Value b = stack_pop();
+      Value a = stack_pop();
+      stack_push(BOOL_VAL(value_is_equal(a, b)));
+      break;
+    }
+
+    case OP_NIL:
+      stack_push(NIL_VAL);
+      break;
+
+    case OP_TRUE:
+      stack_push(BOOL_VAL(true));
+      break;
+
+    case OP_FALSE:
+      stack_push(BOOL_VAL(false));
       break;
 
     default:
       printf("Unknown opcode: '%d'.\n", instr);
       return INTERPRET_RUNTIME_ERROR;
     }
-
 #pragma clang diagnostic pop
   }
 }
