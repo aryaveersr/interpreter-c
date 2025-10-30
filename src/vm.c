@@ -1,18 +1,30 @@
 #include "vm.h"
 #include "chunk.h"
+#include "mem.h"
+#include "object.h"
 #include "value.h"
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 VM vm;
 
 void vm_init(void) {
   vm.stack_top = vm.stack;
+  vm.objects = NULL;
 }
 
-void vm_free(void) {}
+void vm_free(void) {
+  Obj *object = vm.objects;
+
+  while (object != NULL) {
+    Obj *next = object->next;
+    object_free(object);
+    object = next;
+  }
+}
 
 static void stack_push(Value value) {
   *vm.stack_top = value;
@@ -82,7 +94,6 @@ InterpretResult vm_interpret(Chunk *chunk) {
 #pragma clang diagnostic push
 #pragma clang diagnostic warning "-Wswitch-enum"
     switch ((OpCode)instr) {
-      BINARY_OP(NUMBER_VAL, OP_ADD, +);
       BINARY_OP(NUMBER_VAL, OP_SUBTRACT, -);
       BINARY_OP(NUMBER_VAL, OP_MULTIPLY, *);
       BINARY_OP(NUMBER_VAL, OP_DIVIDE, /);
@@ -106,6 +117,29 @@ InterpretResult vm_interpret(Chunk *chunk) {
       }
 
       stack_push(NUMBER_VAL(-AS_NUMBER(stack_pop())));
+      break;
+
+    case OP_ADD:
+      if (IS_STRING(stack_peek(0)) && IS_STRING(stack_peek(1))) {
+        ObjString *b = AS_STRING(stack_pop());
+        ObjString *a = AS_STRING(stack_pop());
+
+        int len = a->len + b->len;
+        char *chars = MEM_ALLOC(char, len + 1);
+        memcpy(chars, a->chars, a->len);
+        memcpy(chars + a->len, b->chars, b->len);
+        chars[len] = '\0';
+
+        ObjString *result = string_alloc(chars, len);
+        stack_push(OBJ_VAL(result));
+      } else if (IS_NUMBER(stack_peek(0)) && IS_NUMBER(stack_peek(1))) {
+        double b = AS_NUMBER(stack_pop());
+        double a = AS_NUMBER(stack_pop());
+        stack_push(NUMBER_VAL(a + b));
+      } else {
+        vm_runtime_error("Operands must be two strings or two numbers.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
       break;
 
     case OP_NOT:

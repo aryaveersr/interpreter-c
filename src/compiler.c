@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include "chunk.h"
 #include "lexer.h"
+#include "object.h"
 #include "value.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -96,10 +97,6 @@ static void c_expr_primary(void) {
     c_expect(TOKEN_RIGHT_PAREN, "Expected closing parenthesis.");
     break;
 
-  case TOKEN_NUMBER:
-    c_emit_const(NUMBER_VAL(strtod(next.start, NULL)));
-    break;
-
   case TOKEN_NIL:
     c_emit_byte(OP_NIL);
     break;
@@ -110,6 +107,14 @@ static void c_expr_primary(void) {
 
   case TOKEN_FALSE:
     c_emit_byte(OP_FALSE);
+    break;
+
+  case TOKEN_NUMBER:
+    c_emit_const(NUMBER_VAL(strtod(next.start, NULL)));
+    break;
+
+  case TOKEN_STRING:
+    c_emit_const(OBJ_VAL(string_copy(next.start + 1, next.len - 2)));
     break;
 
   default:
