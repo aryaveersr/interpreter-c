@@ -1,6 +1,4 @@
 #include "value.h"
-#include "object.h"
-#include <string.h>
 
 bool value_is_falsey(Value value) {
   return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
@@ -23,13 +21,8 @@ bool value_is_equal(Value a, Value b) {
   case VAL_NUMBER:
     return AS_NUMBER(a) == AS_NUMBER(b);
 
-  case VAL_OBJ: {
-    ObjString *a_str = AS_STRING(a);
-    ObjString *b_str = AS_STRING(b);
-
-    return (a_str->len == b_str->len) &&
-           (memcmp(a_str->chars, b_str->chars, a_str->len) == 0);
-  }
+  case VAL_OBJ:
+    return AS_OBJ(a) == AS_OBJ(b);
   }
 #pragma clang diagnostic pop
 }

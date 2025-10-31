@@ -2,6 +2,7 @@
 #include "chunk.h"
 #include "mem.h"
 #include "object.h"
+#include "table.h"
 #include "value.h"
 #include <stdarg.h>
 #include <stdbool.h>
@@ -14,6 +15,8 @@ VM vm;
 void vm_init(void) {
   vm.stack_top = vm.stack;
   vm.objects = NULL;
+
+  table_init(&vm.strings);
 }
 
 void vm_free(void) {
@@ -24,6 +27,8 @@ void vm_free(void) {
     object_free(object);
     object = next;
   }
+
+  table_free(&vm.strings);
 }
 
 static void stack_push(Value value) {
@@ -130,7 +135,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
         memcpy(chars + a->len, b->chars, b->len);
         chars[len] = '\0';
 
-        ObjString *result = string_alloc(chars, len);
+        ObjString *result = string_create(chars, len);
         stack_push(OBJ_VAL(result));
       } else if (IS_NUMBER(stack_peek(0)) && IS_NUMBER(stack_peek(1))) {
         double b = AS_NUMBER(stack_pop());

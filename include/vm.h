@@ -1,6 +1,7 @@
 #ifndef VM_H
 #define VM_H
 
+#include "table.h"
 #define TRACE_VM
 #define STACK_MAX 256
 
@@ -22,6 +23,7 @@ typedef struct {
   Value stack[STACK_MAX];
 
   Obj *objects;
+  Table strings;
 } VM;
 
 extern VM vm;
