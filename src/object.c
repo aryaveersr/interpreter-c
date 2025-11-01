@@ -46,6 +46,8 @@ static ObjString *strings_find(const char *chars, int len, uint32_t hash) {
                memcmp(entry->key->chars, chars, len) == 0) {
       return entry->key;
     }
+
+    idx = (idx + 1) % vm.strings.capacity;
   }
 }
 

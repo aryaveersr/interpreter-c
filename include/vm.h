@@ -24,6 +24,7 @@ typedef struct {
 
   Obj *objects;
   Table strings;
+  Table globals;
 } VM;
 
 extern VM vm;

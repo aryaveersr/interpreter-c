@@ -74,6 +74,15 @@ static void c_expect(TokenKind kind, const char *message) {
   }
 }
 
+static bool c_match(TokenKind kind) {
+  if (c_peek().kind != kind) {
+    return false;
+  }
+
+  c_advance();
+  return true;
+}
+
 static void c_emit_byte(uint8_t byte) {
   chunk_write(compiler.current_chunk, byte, compiler.last.line);
 }
@@ -87,6 +96,26 @@ static void c_emit_const(Value value) {
 
 // Forward declaration.
 static void c_expression(void);
+static void c_statement(void);
+static void c_declaration(void);
+
+static uint8_t c_identifier_const(Token *token) {
+  ObjString *name = string_copy(token->start, token->len);
+  return (uint8_t)chunk_push_const(compiler.current_chunk, OBJ_VAL(name));
+}
+
+static void c_named_variable(Token *token) {
+  uint8_t idx = c_identifier_const(token);
+
+  if (c_match(TOKEN_EQUAL)) {
+    c_expression();
+    c_emit_byte(OP_SET_GLOBAL);
+    c_emit_byte(idx);
+  } else {
+    c_emit_byte(OP_GET_GLOBAL);
+    c_emit_byte(idx);
+  }
+}
 
 static void c_expr_primary(void) {
   Token next = c_advance();
@@ -115,6 +144,10 @@ static void c_expr_primary(void) {
 
   case TOKEN_STRING:
     c_emit_const(OBJ_VAL(string_copy(next.start + 1, next.len - 2)));
+    break;
+
+  case TOKEN_IDENTIFIER:
+    c_named_variable(&next);
     break;
 
   default:
@@ -221,12 +254,96 @@ static void c_expression(void) {
   c_expr_comparison();
 }
 
+static void stmt_print(void) {
+  c_expression();
+  c_expect(TOKEN_SEMICOLON, "Expected ; after value.");
+  c_emit_byte(OP_PRINT);
+}
+
+static void stmt_expression(void) {
+  c_expression();
+  c_expect(TOKEN_SEMICOLON, "Expected ; after value.");
+  c_emit_byte(OP_POP);
+}
+
+static void c_statement(void) {
+  if (c_match(TOKEN_PRINT)) {
+    stmt_print();
+  } else {
+    stmt_expression();
+  }
+}
+
+static void c_synchronize(void) {
+  compiler.panic = false;
+
+  while (!c_match(TOKEN_EOF)) {
+    switch (c_peek().kind) {
+    case TOKEN_CLASS:
+    case TOKEN_FUNCTION:
+    case TOKEN_LET:
+    case TOKEN_FOR:
+    case TOKEN_IF:
+    case TOKEN_WHILE:
+    case TOKEN_PRINT:
+    case TOKEN_RETURN:
+      return;
+
+    case TOKEN_SEMICOLON:
+      c_advance();
+      return;
+
+    default:
+      c_advance();
+      continue;
+    }
+  }
+}
+
+static uint8_t c_variable(const char *message) {
+  c_expect(TOKEN_IDENTIFIER, message);
+  return c_identifier_const(&compiler.last);
+}
+
+static void c_define_variable(uint8_t global) {
+  c_emit_byte(OP_DEFINE_GLOBAL);
+  c_emit_byte(global);
+}
+
+static void c_variable_decl(void) {
+  uint8_t global = c_variable("Expected variable name.");
+
+  if (c_match(TOKEN_EQUAL)) {
+    c_expression();
+  } else {
+    c_emit_byte(OP_NIL);
+  }
+
+  c_expect(TOKEN_SEMICOLON, "Expected ; after variable declaration.");
+  c_define_variable(global);
+}
+
+static void c_declaration(void) {
+  if (c_match(TOKEN_LET)) {
+    c_variable_decl();
+  } else {
+    c_statement();
+  }
+
+  if (compiler.panic) {
+    c_synchronize();
+  }
+}
+
 bool compiler_compile(Chunk *chunk) {
   compiler.had_error = false;
   compiler.panic = false;
   compiler.current_chunk = chunk;
 
-  c_expression();
+  while (!c_match(TOKEN_EOF)) {
+    c_declaration();
+  }
+
   c_emit_byte(OP_RETURN);
 
   return !compiler.had_error;

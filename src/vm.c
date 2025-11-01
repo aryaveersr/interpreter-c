@@ -17,6 +17,7 @@ void vm_init(void) {
   vm.objects = NULL;
 
   table_init(&vm.strings);
+  table_init(&vm.globals);
 }
 
 void vm_free(void) {
@@ -29,6 +30,7 @@ void vm_free(void) {
   }
 
   table_free(&vm.strings);
+  table_free(&vm.globals);
 }
 
 static void stack_push(Value value) {
@@ -61,6 +63,7 @@ static void vm_runtime_error(const char *format, ...) {
 
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (vm.chunk->consts.values[READ_BYTE()])
+#define READ_STRING() AS_STRING(READ_CONSTANT())
 
 #define BINARY_OP(result_type, label, op)                                      \
   case label: {                                                                \
@@ -107,8 +110,6 @@ InterpretResult vm_interpret(Chunk *chunk) {
       BINARY_OP(BOOL_VAL, OP_GREATER, >);
 
     case OP_RETURN:
-      value_print(stack_pop());
-      printf("\n");
       return INTERPRET_OK;
 
     case OP_LOAD:
@@ -169,6 +170,47 @@ InterpretResult vm_interpret(Chunk *chunk) {
     case OP_FALSE:
       stack_push(BOOL_VAL(false));
       break;
+
+    case OP_PRINT:
+      value_print(stack_pop());
+      printf("\n");
+      break;
+
+    case OP_POP:
+      stack_pop();
+      break;
+
+    case OP_DEFINE_GLOBAL: {
+      ObjString *name = READ_STRING();
+      table_set(&vm.globals, name, stack_peek(0));
+      stack_pop();
+      break;
+    }
+
+    case OP_GET_GLOBAL: {
+      ObjString *name = READ_STRING();
+      Value value;
+
+      if (!table_get(&vm.globals, name, &value)) {
+        vm_runtime_error("Undefined variable '%s'.", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      stack_push(value);
+      break;
+    }
+
+    case OP_SET_GLOBAL: {
+      ObjString *name = READ_STRING();
+
+      if (table_set(&vm.globals, name, stack_peek(0))) {
+        table_remove(&vm.globals, name);
+        vm_runtime_error("Undefined variable '%s'.", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      break;
+    }
 
     default:
       printf("Unknown opcode: '%d'.\n", instr);

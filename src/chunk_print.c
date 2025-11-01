@@ -18,6 +18,10 @@ static int instruction_const(const char *name, Chunk *chunk, int offset) {
     printf(#name "\n");                                                        \
     return offset + 1
 
+#define CONST_INSTR(name)                                                      \
+  case name:                                                                   \
+    return instruction_const(#name, chunk, offset)
+
 int chunk_print_instr(Chunk *chunk, int offset) {
   printf("%04d %4d ", offset, chunk_get_line(chunk, offset));
   uint8_t instr = chunk->code[offset];
@@ -42,8 +46,13 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     SIMPLE_INSTR(OP_TRUE);
     SIMPLE_INSTR(OP_FALSE);
 
-  case OP_LOAD:
-    return instruction_const("OP_LOAD", chunk, offset);
+    SIMPLE_INSTR(OP_PRINT);
+    SIMPLE_INSTR(OP_POP);
+
+    CONST_INSTR(OP_LOAD);
+    CONST_INSTR(OP_DEFINE_GLOBAL);
+    CONST_INSTR(OP_GET_GLOBAL);
+    CONST_INSTR(OP_SET_GLOBAL);
 
   default:
     printf("Unknown opcode: '%d'.\n", instr);
