@@ -6,21 +6,40 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-static struct {
+typedef struct {
   bool had_error;
   bool panic;
-  Chunk *current_chunk;
   Token last;
-} compiler;
+} Parser;
+
+typedef struct {
+  Token name;
+  int depth;
+} Local;
+
+typedef struct {
+  Local locals[UINT8_MAX + 1];
+  int len;
+  int depth;
+} Scope;
+
+typedef struct {
+  Chunk *current_chunk;
+  Scope *scope;
+} Compiler;
+
+static Parser parser;
+static Compiler compiler;
 
 static void c_report_error(Token *token, const char *message) {
-  if (compiler.panic) {
+  if (parser.panic) {
     return;
   }
 
-  compiler.panic = true;
-  compiler.had_error = true;
+  parser.panic = true;
+  parser.had_error = true;
 
   fprintf(stderr, "[Line:%d] Error", token->line);
 
@@ -45,7 +64,7 @@ static Token c_advance(void) {
     Token next = lexer_next();
 
     if (next.kind != TOKEN_ERROR) {
-      compiler.last = next;
+      parser.last = next;
       return next;
     }
 
@@ -84,7 +103,7 @@ static bool c_match(TokenKind kind) {
 }
 
 static void c_emit_byte(uint8_t byte) {
-  chunk_write(compiler.current_chunk, byte, compiler.last.line);
+  chunk_write(compiler.current_chunk, byte, parser.last.line);
 }
 
 static void c_emit_const(Value value) {
@@ -104,16 +123,41 @@ static uint8_t c_identifier_const(Token *token) {
   return (uint8_t)chunk_push_const(compiler.current_chunk, OBJ_VAL(name));
 }
 
+static int c_resolve_local(Scope *scope, Token *name) {
+  for (int i = scope->len - 1; i >= 0; i--) {
+    Local *local = &scope->locals[i];
+    if (local->name.len == name->len &&
+        memcmp(local->name.start, name->start, name->len) == 0) {
+      if (local->depth == -1) {
+        c_report_error(&parser.last,
+                       "Can't read variable in it's own initializer.");
+      }
+      return i;
+    }
+  }
+
+  return -1;
+}
+
 static void c_named_variable(Token *token) {
-  uint8_t idx = c_identifier_const(token);
+  uint8_t set = OP_SET_GLOBAL;
+  uint8_t get = OP_GET_GLOBAL;
+  int idx = c_resolve_local(compiler.scope, token);
+
+  if (idx == -1) {
+    idx = c_identifier_const(token);
+  } else {
+    set = OP_SET_LOCAL;
+    get = OP_GET_LOCAL;
+  }
 
   if (c_match(TOKEN_EQUAL)) {
     c_expression();
-    c_emit_byte(OP_SET_GLOBAL);
-    c_emit_byte(idx);
+    c_emit_byte(set);
+    c_emit_byte((uint8_t)idx);
   } else {
-    c_emit_byte(OP_GET_GLOBAL);
-    c_emit_byte(idx);
+    c_emit_byte(get);
+    c_emit_byte((uint8_t)idx);
   }
 }
 
@@ -254,6 +298,21 @@ static void c_expression(void) {
   c_expr_comparison();
 }
 
+static void scope_begin(void) {
+  compiler.scope->depth += 1;
+}
+
+static void scope_end(void) {
+  compiler.scope->depth -= 1;
+
+  while (compiler.scope->len > 0 &&
+         compiler.scope->locals[compiler.scope->len - 1].depth >
+             compiler.scope->depth) {
+    c_emit_byte(OP_POP);
+    compiler.scope->len--;
+  }
+}
+
 static void stmt_print(void) {
   c_expression();
   c_expect(TOKEN_SEMICOLON, "Expected ; after value.");
@@ -266,16 +325,30 @@ static void stmt_expression(void) {
   c_emit_byte(OP_POP);
 }
 
+static void stmt_block(void) {
+  while (!c_match(TOKEN_RIGHT_BRACE) && !c_match(TOKEN_EOF)) {
+    c_declaration();
+  }
+
+  if (parser.last.kind != TOKEN_RIGHT_BRACE) {
+    c_report_error(&parser.last, "Expected } after block.");
+  }
+}
+
 static void c_statement(void) {
   if (c_match(TOKEN_PRINT)) {
     stmt_print();
+  } else if (c_match(TOKEN_LEFT_BRACE)) {
+    scope_begin();
+    stmt_block();
+    scope_end();
   } else {
     stmt_expression();
   }
 }
 
 static void c_synchronize(void) {
-  compiler.panic = false;
+  parser.panic = false;
 
   while (!c_match(TOKEN_EOF)) {
     switch (c_peek().kind) {
@@ -300,17 +373,63 @@ static void c_synchronize(void) {
   }
 }
 
+static void c_add_local(Token name) {
+  if (compiler.scope->len > UINT8_MAX) {
+    c_report_error(&parser.last, "Too many local variables in the function.");
+    return;
+  }
+
+  Local *local = &compiler.scope->locals[compiler.scope->len++];
+
+  local->name = name;
+  local->depth = -1;
+}
+
+static void c_declare_variable(void) {
+  if (compiler.scope->depth == 0) {
+    return;
+  }
+
+  for (int i = compiler.scope->len - 1; i >= 0; i--) {
+    Local *local = &compiler.scope->locals[i];
+
+    if (local->depth != -1 && local->depth < compiler.scope->depth) {
+      break;
+    }
+
+    if (parser.last.len == local->name.len &&
+        memcmp(parser.last.start, local->name.start, parser.last.len) == 0) {
+      c_report_error(&parser.last,
+                     "A variable with this name already exists in the scope.");
+    }
+  }
+
+  c_add_local(parser.last);
+}
+
 static uint8_t c_variable(const char *message) {
   c_expect(TOKEN_IDENTIFIER, message);
-  return c_identifier_const(&compiler.last);
+  c_declare_variable();
+
+  if (compiler.scope->depth > 0) {
+    return 0;
+  }
+
+  return c_identifier_const(&parser.last);
 }
 
 static void c_define_variable(uint8_t global) {
+  if (compiler.scope->depth > 0) {
+    compiler.scope->locals[compiler.scope->len - 1].depth =
+        compiler.scope->depth;
+    return;
+  }
+
   c_emit_byte(OP_DEFINE_GLOBAL);
   c_emit_byte(global);
 }
 
-static void c_variable_decl(void) {
+static void decl_variable(void) {
   uint8_t global = c_variable("Expected variable name.");
 
   if (c_match(TOKEN_EQUAL)) {
@@ -325,20 +444,23 @@ static void c_variable_decl(void) {
 
 static void c_declaration(void) {
   if (c_match(TOKEN_LET)) {
-    c_variable_decl();
+    decl_variable();
   } else {
     c_statement();
   }
 
-  if (compiler.panic) {
+  if (parser.panic) {
     c_synchronize();
   }
 }
 
 bool compiler_compile(Chunk *chunk) {
-  compiler.had_error = false;
-  compiler.panic = false;
+  Scope scope = {.depth = 0, .len = 0};
+
+  parser.had_error = false;
+  parser.panic = false;
   compiler.current_chunk = chunk;
+  compiler.scope = &scope;
 
   while (!c_match(TOKEN_EOF)) {
     c_declaration();
@@ -346,5 +468,5 @@ bool compiler_compile(Chunk *chunk) {
 
   c_emit_byte(OP_RETURN);
 
-  return !compiler.had_error;
+  return !parser.had_error;
 }

@@ -13,14 +13,22 @@ static int instruction_const(const char *name, Chunk *chunk, int offset) {
   return offset + 2;
 }
 
+static int instruction_byte(const char *name, Chunk *chunk, int offset) {
+  uint8_t slot = chunk->code[offset + 1];
+  printf("%-16s %4d\n", name, slot);
+  return offset + 2;
+}
+
 #define SIMPLE_INSTR(name)                                                     \
   case name:                                                                   \
     printf(#name "\n");                                                        \
     return offset + 1
-
 #define CONST_INSTR(name)                                                      \
   case name:                                                                   \
     return instruction_const(#name, chunk, offset)
+#define BYTE_INSTR(name)                                                       \
+  case name:                                                                   \
+    return instruction_byte(#name, chunk, offset)
 
 int chunk_print_instr(Chunk *chunk, int offset) {
   printf("%04d %4d ", offset, chunk_get_line(chunk, offset));
@@ -53,6 +61,9 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     CONST_INSTR(OP_DEFINE_GLOBAL);
     CONST_INSTR(OP_GET_GLOBAL);
     CONST_INSTR(OP_SET_GLOBAL);
+
+    BYTE_INSTR(OP_GET_LOCAL);
+    BYTE_INSTR(OP_SET_LOCAL);
 
   default:
     printf("Unknown opcode: '%d'.\n", instr);

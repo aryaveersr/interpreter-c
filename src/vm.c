@@ -212,6 +212,15 @@ InterpretResult vm_interpret(Chunk *chunk) {
       break;
     }
 
+    case OP_GET_LOCAL:
+      stack_push(vm.stack[READ_BYTE()]);
+      break;
+
+    case OP_SET_LOCAL: {
+      vm.stack[READ_BYTE()] = stack_peek(0);
+      break;
+    }
+
     default:
       printf("Unknown opcode: '%d'.\n", instr);
       return INTERPRET_RUNTIME_ERROR;
