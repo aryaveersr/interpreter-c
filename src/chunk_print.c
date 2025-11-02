@@ -23,9 +23,11 @@ static int instruction_byte(const char *name, Chunk *chunk, int offset) {
   case name:                                                                   \
     printf(#name "\n");                                                        \
     return offset + 1
+
 #define CONST_INSTR(name)                                                      \
   case name:                                                                   \
     return instruction_const(#name, chunk, offset)
+
 #define BYTE_INSTR(name)                                                       \
   case name:                                                                   \
     return instruction_byte(#name, chunk, offset)

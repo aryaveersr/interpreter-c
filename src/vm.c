@@ -49,7 +49,7 @@ static Value stack_peek(int idx) {
 
 static void stack_reset(void) {}
 
-static void vm_runtime_error(const char *format, ...) {
+static void runtime_error(const char *format, ...) {
   va_list args;
   va_start(args, format);
   vfprintf(stderr, format, args);
@@ -68,7 +68,7 @@ static void vm_runtime_error(const char *format, ...) {
 #define BINARY_OP(result_type, label, op)                                      \
   case label: {                                                                \
     if (!IS_NUMBER(stack_peek(0)) || !IS_NUMBER(stack_peek(1))) {              \
-      vm_runtime_error("Operands must be numbers.");                           \
+      runtime_error("Operands must be numbers.");                              \
       return INTERPRET_RUNTIME_ERROR;                                          \
     }                                                                          \
                                                                                \
@@ -118,7 +118,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
 
     case OP_NEGATE:
       if (!IS_NUMBER(stack_peek(0))) {
-        vm_runtime_error("Operand must be a number.");
+        runtime_error("Operand must be a number.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
@@ -143,7 +143,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
         double a = AS_NUMBER(stack_pop());
         stack_push(NUMBER_VAL(a + b));
       } else {
-        vm_runtime_error("Operands must be two strings or two numbers.");
+        runtime_error("Operands must be two strings or two numbers.");
         return INTERPRET_RUNTIME_ERROR;
       }
       break;
@@ -192,7 +192,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
       Value value;
 
       if (!table_get(&vm.globals, name, &value)) {
-        vm_runtime_error("Undefined variable '%s'.", name->chars);
+        runtime_error("Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
 
@@ -205,7 +205,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
 
       if (table_set(&vm.globals, name, stack_peek(0))) {
         table_remove(&vm.globals, name);
-        vm_runtime_error("Undefined variable '%s'.", name->chars);
+        runtime_error("Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
 

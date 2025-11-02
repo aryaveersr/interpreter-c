@@ -3,12 +3,14 @@
 #include <stdbool.h>
 #include <string.h>
 
-static struct {
+typedef struct {
   const char *start;
   const char *next;
   int line;
   Token buffer;
-} lexer;
+} Lexer;
+
+static Lexer lexer;
 
 #define IS_VALID_IN_IDENTIFIER(ch) (isalnum(ch) || (ch) == '_')
 
@@ -23,49 +25,7 @@ void lexer_init(const char *source) {
   BUFFER_CLEAR();
 }
 
-static char lx_advance(void) {
-  lexer.next += 1;
-  return lexer.next[-1];
-}
-
-static bool lx_is_eof(void) {
-  return *lexer.next == '\0';
-}
-
-static void lx_skip_whitespace(void) {
-  while (true) {
-    char ch = *lexer.next;
-
-    switch (ch) {
-    case ' ':
-    case '\r':
-    case '\t':
-      lx_advance();
-      break;
-
-    case '\n':
-      lexer.line += 1;
-      lx_advance();
-      break;
-
-    case '/':
-      if (lexer.next[1] == '/') {
-        while (*lexer.next != '\n' && !lx_is_eof()) {
-          lx_advance();
-        }
-      } else {
-        return;
-      }
-
-      break;
-
-    default:
-      return;
-    }
-  }
-}
-
-static Token lx_emit_token(TokenKind kind) {
+static Token emit_token(TokenKind kind) {
   Token token;
 
   token.kind = kind;
@@ -76,7 +36,7 @@ static Token lx_emit_token(TokenKind kind) {
   return token;
 }
 
-static Token lx_emit_error(const char *message) {
+static Token emit_error(const char *message) {
   Token token;
 
   token.kind = TOKEN_ERROR;
@@ -87,8 +47,17 @@ static Token lx_emit_error(const char *message) {
   return token;
 }
 
-static bool lx_match(char ch) {
-  if (lx_is_eof() || *lexer.next != ch) {
+static bool is_eof(void) {
+  return *lexer.next == '\0';
+}
+
+static char advance(void) {
+  lexer.next += 1;
+  return lexer.next[-1];
+}
+
+static bool match(char ch) {
+  if (is_eof() || *lexer.next != ch) {
     return false;
   }
 
@@ -96,7 +65,39 @@ static bool lx_match(char ch) {
   return true;
 }
 
-static Token lx_number(void) {
+static void skip_whitespace(void) {
+  while (true) {
+    char ch = *lexer.next;
+
+    switch (ch) {
+    case ' ':
+    case '\r':
+    case '\t':
+      advance();
+      break;
+
+    case '\n':
+      lexer.line += 1;
+      advance();
+      break;
+
+    case '/':
+      if (lexer.next[1] == '/') {
+        while (*lexer.next != '\n' && !is_eof()) {
+          advance();
+        }
+      } else {
+        return;
+      }
+      break;
+
+    default:
+      return;
+    }
+  }
+}
+
+static Token number(void) {
   while (isdigit(*lexer.next)) {
     lexer.next += 1;
   }
@@ -109,24 +110,24 @@ static Token lx_number(void) {
     }
   }
 
-  return lx_emit_token(TOKEN_NUMBER);
+  return emit_token(TOKEN_NUMBER);
 }
 
-static Token lx_string(void) {
-  while (*lexer.next != '"' && !lx_is_eof()) {
-    if (lx_advance() == '\n') {
+static Token string(void) {
+  while (*lexer.next != '"' && !is_eof()) {
+    if (advance() == '\n') {
       lexer.line += 1;
     }
   }
 
-  if (lx_match('"')) {
-    return lx_emit_token(TOKEN_STRING);
+  if (match('"')) {
+    return emit_token(TOKEN_STRING);
   } else {
-    return lx_emit_error("Unterminated string.");
+    return emit_error("Unterminated string.");
   }
 }
 
-static TokenKind lx_identifier_kind(void) {
+static TokenKind identifier_kind(void) {
 #define MATCH_KEYWORD(keyword, kind)                                           \
   if ((lexer.next - lexer.start) == (sizeof(keyword) - 1) &&                   \
       strncmp(lexer.start, keyword, sizeof(keyword) - 1) == 0) {               \
@@ -156,12 +157,12 @@ static TokenKind lx_identifier_kind(void) {
 #undef MATCH_KEYWORD
 }
 
-static Token lx_identifier(void) {
+static Token identifier(void) {
   while (IS_VALID_IN_IDENTIFIER(*lexer.next)) {
     lexer.next += 1;
   }
 
-  return lx_emit_token(lx_identifier_kind());
+  return emit_token(identifier_kind());
 }
 
 Token lexer_next(void) {
@@ -171,30 +172,30 @@ Token lexer_next(void) {
     return buffer;
   }
 
-  lx_skip_whitespace();
+  skip_whitespace();
   lexer.start = lexer.next;
 
-  if (lx_is_eof()) {
-    return lx_emit_token(TOKEN_EOF);
+  if (is_eof()) {
+    return emit_token(TOKEN_EOF);
   }
 
-  char ch = lx_advance();
+  char ch = advance();
 
   if (isdigit(ch)) {
-    return lx_number();
+    return number();
   }
 
   if (IS_VALID_IN_IDENTIFIER(ch)) {
-    return lx_identifier();
+    return identifier();
   }
 
 #define SINGLE_CHAR_TOKEN(ch, kind)                                            \
   case ch:                                                                     \
-    return lx_emit_token(kind)
+    return emit_token(kind)
 
 #define EQUAL_TOKEN(ch, without_eq, with_eq)                                   \
   case ch:                                                                     \
-    return lx_emit_token(lx_match('=') ? (with_eq) : (without_eq))
+    return emit_token(match('=') ? (with_eq) : (without_eq))
 
   switch (ch) {
     SINGLE_CHAR_TOKEN('(', TOKEN_LEFT_PAREN);
@@ -216,10 +217,10 @@ Token lexer_next(void) {
     EQUAL_TOKEN('>', TOKEN_GREATER, TOKEN_GREATER_EQUAL);
 
   case '"':
-    return lx_string();
+    return string();
 
   default:
-    return lx_emit_error("Unknown character.");
+    return emit_error("Unknown character.");
   }
 
 #undef SINGLE_CHAR_TOKEN

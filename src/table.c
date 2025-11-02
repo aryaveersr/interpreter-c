@@ -18,7 +18,7 @@ void table_free(Table *table) {
   table_init(table);
 }
 
-static Entry *t_find_entry(Entry *entries, int capacity, ObjString *key) {
+static Entry *find_entry(Entry *entries, int capacity, ObjString *key) {
   uint32_t idx = key->hash % capacity;
   Entry *tombstone = NULL;
 
@@ -41,7 +41,7 @@ static Entry *t_find_entry(Entry *entries, int capacity, ObjString *key) {
   }
 }
 
-static void t_adjust_capacity(Table *table, int capacity) {
+static void adjust_capacity(Table *table, int capacity) {
   Entry *entries = MEM_ALLOC(Entry, capacity);
 
   for (int i = 0; i < capacity; i++) {
@@ -57,7 +57,7 @@ static void t_adjust_capacity(Table *table, int capacity) {
       continue;
     }
 
-    Entry *dest = t_find_entry(entries, capacity, entry->key);
+    Entry *dest = find_entry(entries, capacity, entry->key);
 
     dest->key = entry->key;
     dest->value = entry->value;
@@ -72,10 +72,10 @@ static void t_adjust_capacity(Table *table, int capacity) {
 bool table_set(Table *table, struct ObjString *key, Value value) {
   if (table->len + 1 > table->capacity * TABLE_MAX_LOAD) {
     int capacity = MEM_GROW_CAPACITY(table->capacity);
-    t_adjust_capacity(table, capacity);
+    adjust_capacity(table, capacity);
   }
 
-  Entry *entry = t_find_entry(table->entries, table->capacity, key);
+  Entry *entry = find_entry(table->entries, table->capacity, key);
   bool is_new = entry->key == NULL;
 
   if (is_new && IS_NIL(entry->value)) {
@@ -93,7 +93,7 @@ bool table_get(Table *table, ObjString *key, Value *dest) {
     return false;
   }
 
-  Entry *entry = t_find_entry(table->entries, table->capacity, key);
+  Entry *entry = find_entry(table->entries, table->capacity, key);
   if (entry->key == NULL) {
     return false;
   }
@@ -107,7 +107,7 @@ bool table_remove(Table *table, ObjString *key) {
     return false;
   }
 
-  Entry *entry = t_find_entry(table->entries, table->capacity, key);
+  Entry *entry = find_entry(table->entries, table->capacity, key);
   if (entry->key == NULL) {
     return false;
   }

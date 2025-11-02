@@ -1,13 +1,13 @@
 #ifndef VM_H
 #define VM_H
 
-#include "table.h"
-#define TRACE_VM
-#define STACK_MAX 256
-
 #include "chunk.h"
+#include "table.h"
 #include "value.h"
 #include <stdint.h>
+
+#define TRACE_VM
+#define STACK_MAX 256
 
 typedef enum {
   INTERPRET_OK,

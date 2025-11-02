@@ -9,12 +9,6 @@
 #include <string.h>
 
 typedef struct {
-  bool had_error;
-  bool panic;
-  Token last;
-} Parser;
-
-typedef struct {
   Token name;
   int depth;
 } Local;
@@ -23,17 +17,19 @@ typedef struct {
   Local locals[UINT8_MAX + 1];
   int len;
   int depth;
-} Scope;
-
-typedef struct {
-  Chunk *current_chunk;
-  Scope *scope;
 } Compiler;
 
-static Parser parser;
-static Compiler compiler;
+typedef struct {
+  bool had_error;
+  bool panic;
+  Token last;
+} Parser;
 
-static void c_report_error(Token *token, const char *message) {
+static Parser parser;
+static Chunk *current_chunk;
+static Compiler *current;
+
+static void report_error_at(Token *token, const char *message) {
   if (parser.panic) {
     return;
   }
@@ -59,20 +55,24 @@ static void c_report_error(Token *token, const char *message) {
   fprintf(stderr, ": %s\n", message);
 }
 
-static Token c_advance(void) {
+static inline void report_error(const char *message) {
+  report_error_at(&parser.last, message);
+}
+
+static Token advance(void) {
   while (true) {
     Token next = lexer_next();
+    parser.last = next;
 
-    if (next.kind != TOKEN_ERROR) {
-      parser.last = next;
+    if (next.kind == TOKEN_ERROR) {
+      report_error(next.start);
+    } else {
       return next;
     }
-
-    c_report_error(&next, next.start);
   }
 }
 
-static Token c_peek(void) {
+static Token peek(void) {
   Token next = lexer_peek();
 
   while (next.kind == TOKEN_ERROR) {
@@ -83,275 +83,356 @@ static Token c_peek(void) {
   return next;
 }
 
-static void c_expect(TokenKind kind, const char *message) {
-  Token next = c_peek();
+static void expect(TokenKind kind, const char *message) {
+  Token next = peek();
 
   if (next.kind == kind) {
-    c_advance();
+    advance();
   } else {
-    c_report_error(&next, message);
+    report_error_at(&next, message);
   }
 }
 
-static bool c_match(TokenKind kind) {
-  if (c_peek().kind != kind) {
+static bool match(TokenKind kind) {
+  if (peek().kind != kind) {
     return false;
   }
 
-  c_advance();
+  advance();
   return true;
 }
 
-static void c_emit_byte(uint8_t byte) {
-  chunk_write(compiler.current_chunk, byte, parser.last.line);
+static void emit_byte(uint8_t byte) {
+  chunk_write(current_chunk, byte, parser.last.line);
 }
 
-static void c_emit_const(Value value) {
-  int idx = chunk_push_const(compiler.current_chunk, value);
+static void emit_const(Value value) {
+  int idx = chunk_push_const(current_chunk, value);
 
-  c_emit_byte(OP_LOAD);
-  c_emit_byte((uint8_t)idx);
+  emit_byte(OP_LOAD);
+  emit_byte((uint8_t)idx);
+}
+
+static uint8_t emit_identifier(Token *token) {
+  ObjString *name = string_copy(token->start, token->len);
+  return (uint8_t)chunk_push_const(current_chunk, OBJ_VAL(name));
 }
 
 // Forward declaration.
-static void c_expression(void);
-static void c_statement(void);
-static void c_declaration(void);
+static void expression(void);
+static void statement(void);
+static void declaration(void);
 
-static uint8_t c_identifier_const(Token *token) {
-  ObjString *name = string_copy(token->start, token->len);
-  return (uint8_t)chunk_push_const(compiler.current_chunk, OBJ_VAL(name));
+static inline bool token_is_equal(Token *lhs, Token *rhs) {
+  return (lhs->len == rhs->len) &&
+         (memcmp(lhs->start, rhs->start, lhs->len) == 0);
 }
 
-static int c_resolve_local(Scope *scope, Token *name) {
-  for (int i = scope->len - 1; i >= 0; i--) {
-    Local *local = &scope->locals[i];
-    if (local->name.len == name->len &&
-        memcmp(local->name.start, name->start, name->len) == 0) {
-      if (local->depth == -1) {
-        c_report_error(&parser.last,
-                       "Can't read variable in it's own initializer.");
-      }
-      return i;
+static void scope_begin(void) {
+  current->depth += 1;
+}
+
+static void scope_end(void) {
+  current->depth -= 1;
+
+  while (current->len > 0) {
+    if (current->locals[current->len - 1].depth > current->depth) {
+      break;
     }
+
+    emit_byte(OP_POP);
+    current->len--;
+  }
+}
+
+static int scope_find_local(Compiler *compiler, Token *name) {
+  for (int i = compiler->len - 1; i >= 0; i--) {
+    Local *local = &compiler->locals[i];
+
+    if (!token_is_equal(&local->name, name)) {
+      continue;
+    }
+
+    if (local->depth == -1) {
+      report_error("Can't read a variable in it's own initializer.");
+    }
+
+    return i;
   }
 
   return -1;
 }
 
-static void c_named_variable(Token *token) {
-  uint8_t set = OP_SET_GLOBAL;
-  uint8_t get = OP_GET_GLOBAL;
-  int idx = c_resolve_local(compiler.scope, token);
+static void expression_variable(Token *name) {
+  uint8_t set_op = 0;
+  uint8_t get_op = 0;
+
+  int idx = scope_find_local(current, name);
 
   if (idx == -1) {
-    idx = c_identifier_const(token);
+    idx = emit_identifier(name);
+    set_op = OP_SET_GLOBAL;
+    get_op = OP_GET_GLOBAL;
   } else {
-    set = OP_SET_LOCAL;
-    get = OP_GET_LOCAL;
+    set_op = OP_SET_LOCAL;
+    get_op = OP_GET_LOCAL;
   }
 
-  if (c_match(TOKEN_EQUAL)) {
-    c_expression();
-    c_emit_byte(set);
-    c_emit_byte((uint8_t)idx);
+  if (match(TOKEN_EQUAL)) {
+    expression();
+    emit_byte(set_op);
+    emit_byte((uint8_t)idx);
   } else {
-    c_emit_byte(get);
-    c_emit_byte((uint8_t)idx);
+    emit_byte(get_op);
+    emit_byte((uint8_t)idx);
   }
 }
 
-static void c_expr_primary(void) {
-  Token next = c_advance();
+static void expression_primary(void) {
+  Token next = advance();
 
   switch (next.kind) {
   case TOKEN_LEFT_PAREN:
-    c_expression();
-    c_expect(TOKEN_RIGHT_PAREN, "Expected closing parenthesis.");
+    expression();
+    expect(TOKEN_RIGHT_PAREN, "Expected closing parenthesis.");
     break;
 
   case TOKEN_NIL:
-    c_emit_byte(OP_NIL);
+    emit_byte(OP_NIL);
     break;
 
   case TOKEN_TRUE:
-    c_emit_byte(OP_TRUE);
+    emit_byte(OP_TRUE);
     break;
 
   case TOKEN_FALSE:
-    c_emit_byte(OP_FALSE);
+    emit_byte(OP_FALSE);
     break;
 
   case TOKEN_NUMBER:
-    c_emit_const(NUMBER_VAL(strtod(next.start, NULL)));
+    emit_const(NUMBER_VAL(strtod(next.start, NULL)));
     break;
 
   case TOKEN_STRING:
-    c_emit_const(OBJ_VAL(string_copy(next.start + 1, next.len - 2)));
+    emit_const(OBJ_VAL(string_copy(next.start + 1, next.len - 2)));
     break;
 
   case TOKEN_IDENTIFIER:
-    c_named_variable(&next);
+    expression_variable(&next);
     break;
 
   default:
-    c_report_error(&next, "Expected expression.");
+    report_error("Expected expression.");
     break;
   }
 }
 
-static void c_expr_unary(void) {
-  switch (c_peek().kind) {
+static void expression_unary(void) {
+  switch (peek().kind) {
   case TOKEN_MINUS:
-    c_advance();
-    c_expr_primary();
-    c_emit_byte(OP_NEGATE);
+    advance();
+    expression_primary();
+    emit_byte(OP_NEGATE);
     break;
 
   case TOKEN_BANG:
-    c_advance();
-    c_expr_primary();
-    c_emit_byte(OP_NOT);
+    advance();
+    expression_primary();
+    emit_byte(OP_NOT);
     break;
 
   default:
-    c_expr_primary();
+    expression_primary();
   }
 }
 
-static void c_expr_factor(void) {
-  c_expr_unary();
+static void expression_factor(void) {
+  expression_unary();
 
-  while ((c_peek().kind == TOKEN_STAR) || (c_peek().kind == TOKEN_SLASH)) {
-    Token next = c_advance();
-
-    c_expr_unary();
-    c_emit_byte((next.kind == TOKEN_STAR) ? OP_MULTIPLY : OP_DIVIDE);
+  while (match(TOKEN_STAR) || match(TOKEN_SLASH)) {
+    expression_unary();
+    emit_byte((parser.last.kind == TOKEN_STAR) ? OP_MULTIPLY : OP_DIVIDE);
   }
 }
 
-static void c_expr_term(void) {
-  c_expr_factor();
+static void expression_term(void) {
+  expression_factor();
 
-  while ((c_peek().kind == TOKEN_PLUS) || (c_peek().kind == TOKEN_MINUS)) {
-    Token next = c_advance();
-
-    c_expr_factor();
-    c_emit_byte((next.kind == TOKEN_PLUS) ? OP_ADD : OP_SUBTRACT);
+  while (match(TOKEN_PLUS) || match(TOKEN_MINUS)) {
+    expression_factor();
+    emit_byte((parser.last.kind == TOKEN_PLUS) ? OP_ADD : OP_SUBTRACT);
   }
 }
 
-static void c_expr_comparison(void) {
-  c_expr_term();
+static void expression_comparison(void) {
+  expression_term();
 
   while (true) {
-    switch (c_peek().kind) {
+    switch (peek().kind) {
     case TOKEN_LESSER:
-      c_advance();
-      c_expr_term();
-      c_emit_byte(OP_LESSER);
+      advance();
+      expression_term();
+      emit_byte(OP_LESSER);
       continue;
 
     case TOKEN_LESSER_EQUAL:
-      c_advance();
-      c_expr_term();
-      c_emit_byte(OP_GREATER);
-      c_emit_byte(OP_NOT);
+      advance();
+      expression_term();
+      emit_byte(OP_GREATER);
+      emit_byte(OP_NOT);
       continue;
 
     case TOKEN_GREATER:
-      c_advance();
-      c_expr_term();
-      c_emit_byte(OP_GREATER);
+      advance();
+      expression_term();
+      emit_byte(OP_GREATER);
       continue;
 
     case TOKEN_GREATER_EQUAL:
-      c_advance();
-      c_expr_term();
-      c_emit_byte(OP_LESSER);
-      c_emit_byte(OP_NOT);
+      advance();
+      expression_term();
+      emit_byte(OP_LESSER);
+      emit_byte(OP_NOT);
       continue;
 
     case TOKEN_EQUAL_EQUAL:
-      c_advance();
-      c_expr_term();
-      c_emit_byte(OP_EQUAL);
+      advance();
+      expression_term();
+      emit_byte(OP_EQUAL);
       continue;
 
     case TOKEN_BANG_EQUAL:
-      c_advance();
-      c_expr_term();
-      c_emit_byte(OP_EQUAL);
-      c_emit_byte(OP_NOT);
+      advance();
+      expression_term();
+      emit_byte(OP_EQUAL);
+      emit_byte(OP_NOT);
       continue;
 
     default:
-      goto LOOP_END;
+      return;
     }
   }
-
-LOOP_END:
-  (void)0;
 }
 
-static void c_expression(void) {
-  c_expr_comparison();
+static void expression(void) {
+  expression_comparison();
 }
 
-static void scope_begin(void) {
-  compiler.scope->depth += 1;
+static void statement_print(void) {
+  advance();
+  expression();
+  expect(TOKEN_SEMICOLON, "Expected ; after value.");
+  emit_byte(OP_PRINT);
 }
 
-static void scope_end(void) {
-  compiler.scope->depth -= 1;
+static void statement_block(void) {
+  advance();
+  scope_begin();
 
-  while (compiler.scope->len > 0 &&
-         compiler.scope->locals[compiler.scope->len - 1].depth >
-             compiler.scope->depth) {
-    c_emit_byte(OP_POP);
-    compiler.scope->len--;
-  }
-}
-
-static void stmt_print(void) {
-  c_expression();
-  c_expect(TOKEN_SEMICOLON, "Expected ; after value.");
-  c_emit_byte(OP_PRINT);
-}
-
-static void stmt_expression(void) {
-  c_expression();
-  c_expect(TOKEN_SEMICOLON, "Expected ; after value.");
-  c_emit_byte(OP_POP);
-}
-
-static void stmt_block(void) {
-  while (!c_match(TOKEN_RIGHT_BRACE) && !c_match(TOKEN_EOF)) {
-    c_declaration();
+  while (!match(TOKEN_RIGHT_BRACE) && !match(TOKEN_EOF)) {
+    declaration();
   }
 
   if (parser.last.kind != TOKEN_RIGHT_BRACE) {
-    c_report_error(&parser.last, "Expected } after block.");
+    report_error("Expected } after block.");
+  }
+
+  scope_end();
+}
+
+static void statement_expression(void) {
+  expression();
+  expect(TOKEN_SEMICOLON, "Expected ; after value.");
+  emit_byte(OP_POP);
+}
+
+static void statement(void) {
+  switch (peek().kind) {
+  case TOKEN_PRINT:
+    statement_print();
+    break;
+
+  case TOKEN_LEFT_BRACE:
+    statement_block();
+    break;
+
+  default:
+    statement_expression();
+    break;
   }
 }
 
-static void c_statement(void) {
-  if (c_match(TOKEN_PRINT)) {
-    stmt_print();
-  } else if (c_match(TOKEN_LEFT_BRACE)) {
-    scope_begin();
-    stmt_block();
-    scope_end();
+static void add_local(Token name) {
+  if (current->len > UINT8_MAX) {
+    report_error("Too many local variables in the function.");
+    return;
+  }
+
+  Local *local = &current->locals[current->len++];
+
+  local->name = name;
+  local->depth = -1;
+}
+
+static void declare_variable(void) {
+  if (current->depth == 0) {
+    return;
+  }
+
+  for (int i = current->len - 1; i >= 0; i--) {
+    Local *local = &current->locals[i];
+
+    if (local->depth != -1 && local->depth < current->depth) {
+      break;
+    }
+
+    if (token_is_equal(&parser.last, &local->name)) {
+      report_error("A variable with this name already exists in this scope.");
+    }
+  }
+
+  add_local(parser.last);
+}
+
+static uint8_t variable(const char *message) {
+  expect(TOKEN_IDENTIFIER, message);
+  declare_variable();
+
+  if (current->depth > 0) {
+    return 0;
+  }
+
+  return emit_identifier(&parser.last);
+}
+
+static void define_variable(uint8_t global) {
+  if (current->depth > 0) {
+    current->locals[current->len - 1].depth = current->depth;
+    return;
+  }
+
+  emit_byte(OP_DEFINE_GLOBAL);
+  emit_byte(global);
+}
+
+static void declaration_variable(void) {
+  uint8_t global = variable("Expected variable name.");
+
+  if (match(TOKEN_EQUAL)) {
+    expression();
   } else {
-    stmt_expression();
+    emit_byte(OP_NIL);
   }
+
+  expect(TOKEN_SEMICOLON, "Expected ; after variable declaration.");
+  define_variable(global);
 }
 
-static void c_synchronize(void) {
+static void synchronize(void) {
   parser.panic = false;
 
-  while (!c_match(TOKEN_EOF)) {
-    switch (c_peek().kind) {
+  while (!match(TOKEN_EOF)) {
+    switch (peek().kind) {
     case TOKEN_CLASS:
     case TOKEN_FUNCTION:
     case TOKEN_LET:
@@ -363,110 +444,40 @@ static void c_synchronize(void) {
       return;
 
     case TOKEN_SEMICOLON:
-      c_advance();
+      advance();
       return;
 
     default:
-      c_advance();
+      advance();
       continue;
     }
   }
 }
 
-static void c_add_local(Token name) {
-  if (compiler.scope->len > UINT8_MAX) {
-    c_report_error(&parser.last, "Too many local variables in the function.");
-    return;
-  }
-
-  Local *local = &compiler.scope->locals[compiler.scope->len++];
-
-  local->name = name;
-  local->depth = -1;
-}
-
-static void c_declare_variable(void) {
-  if (compiler.scope->depth == 0) {
-    return;
-  }
-
-  for (int i = compiler.scope->len - 1; i >= 0; i--) {
-    Local *local = &compiler.scope->locals[i];
-
-    if (local->depth != -1 && local->depth < compiler.scope->depth) {
-      break;
-    }
-
-    if (parser.last.len == local->name.len &&
-        memcmp(parser.last.start, local->name.start, parser.last.len) == 0) {
-      c_report_error(&parser.last,
-                     "A variable with this name already exists in the scope.");
-    }
-  }
-
-  c_add_local(parser.last);
-}
-
-static uint8_t c_variable(const char *message) {
-  c_expect(TOKEN_IDENTIFIER, message);
-  c_declare_variable();
-
-  if (compiler.scope->depth > 0) {
-    return 0;
-  }
-
-  return c_identifier_const(&parser.last);
-}
-
-static void c_define_variable(uint8_t global) {
-  if (compiler.scope->depth > 0) {
-    compiler.scope->locals[compiler.scope->len - 1].depth =
-        compiler.scope->depth;
-    return;
-  }
-
-  c_emit_byte(OP_DEFINE_GLOBAL);
-  c_emit_byte(global);
-}
-
-static void decl_variable(void) {
-  uint8_t global = c_variable("Expected variable name.");
-
-  if (c_match(TOKEN_EQUAL)) {
-    c_expression();
+static void declaration(void) {
+  if (match(TOKEN_LET)) {
+    declaration_variable();
   } else {
-    c_emit_byte(OP_NIL);
-  }
-
-  c_expect(TOKEN_SEMICOLON, "Expected ; after variable declaration.");
-  c_define_variable(global);
-}
-
-static void c_declaration(void) {
-  if (c_match(TOKEN_LET)) {
-    decl_variable();
-  } else {
-    c_statement();
+    statement();
   }
 
   if (parser.panic) {
-    c_synchronize();
+    synchronize();
   }
 }
 
 bool compiler_compile(Chunk *chunk) {
-  Scope scope = {.depth = 0, .len = 0};
+  Compiler compiler = {.depth = 0, .len = 0};
 
   parser.had_error = false;
   parser.panic = false;
-  compiler.current_chunk = chunk;
-  compiler.scope = &scope;
+  current_chunk = chunk;
+  current = &compiler;
 
-  while (!c_match(TOKEN_EOF)) {
-    c_declaration();
+  while (!match(TOKEN_EOF)) {
+    declaration();
   }
 
-  c_emit_byte(OP_RETURN);
-
+  emit_byte(OP_RETURN);
   return !parser.had_error;
 }
