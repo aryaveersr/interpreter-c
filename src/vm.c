@@ -19,6 +19,8 @@ static void reset_stack(void) {
 }
 
 static Value native_clock(int arg_len, Value *args) {
+  (void)arg_len;
+  (void)args;
   return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
 

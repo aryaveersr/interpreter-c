@@ -2,7 +2,6 @@
 #define COMPILER_H
 
 #include "object.h"
-#include <stdbool.h>
 
 #define DUMP_CODE
 
