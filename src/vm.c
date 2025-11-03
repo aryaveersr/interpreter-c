@@ -33,21 +33,21 @@ void vm_free(void) {
   table_free(&vm.globals);
 }
 
-static void stack_push(Value value) {
+static void push(Value value) {
   *vm.stack_top = value;
   vm.stack_top += 1;
 }
 
-static Value stack_pop(void) {
+static Value pop(void) {
   vm.stack_top -= 1;
   return *vm.stack_top;
 }
 
-static Value stack_peek(int idx) {
+static Value peek(int idx) {
   return vm.stack_top[-1 - idx];
 }
 
-static void stack_reset(void) {}
+static void reset_stack(void) {}
 
 static void runtime_error(const char *format, ...) {
   va_list args;
@@ -58,7 +58,7 @@ static void runtime_error(const char *format, ...) {
 
   int line = chunk_get_line(vm.chunk, (int)(vm.ip - vm.chunk->code - 1));
   fprintf(stderr, "[Line %d] in script\n", line);
-  stack_reset();
+  reset_stack();
 }
 
 #define READ_BYTE() (*vm.ip++)
@@ -68,15 +68,15 @@ static void runtime_error(const char *format, ...) {
 
 #define BINARY_OP(result_type, label, op)                                      \
   case label: {                                                                \
-    if (!IS_NUMBER(stack_peek(0)) || !IS_NUMBER(stack_peek(1))) {              \
+    if (!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {                          \
       runtime_error("Operands must be numbers.");                              \
       return INTERPRET_RUNTIME_ERROR;                                          \
     }                                                                          \
                                                                                \
-    double b = AS_NUMBER(stack_pop());                                         \
-    double a = AS_NUMBER(stack_pop());                                         \
+    double b = AS_NUMBER(pop());                                               \
+    double a = AS_NUMBER(pop());                                               \
                                                                                \
-    stack_push(result_type(a op b));                                           \
+    push(result_type(a op b));                                                 \
     break;                                                                     \
   }
 
@@ -114,22 +114,22 @@ InterpretResult vm_interpret(Chunk *chunk) {
       return INTERPRET_OK;
 
     case OP_LOAD:
-      stack_push(READ_CONSTANT());
+      push(READ_CONSTANT());
       break;
 
     case OP_NEGATE:
-      if (!IS_NUMBER(stack_peek(0))) {
+      if (!IS_NUMBER(peek(0))) {
         runtime_error("Operand must be a number.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
-      stack_push(NUMBER_VAL(-AS_NUMBER(stack_pop())));
+      push(NUMBER_VAL(-AS_NUMBER(pop())));
       break;
 
     case OP_ADD:
-      if (IS_STRING(stack_peek(0)) && IS_STRING(stack_peek(1))) {
-        ObjString *b = AS_STRING(stack_pop());
-        ObjString *a = AS_STRING(stack_pop());
+      if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+        ObjString *b = AS_STRING(pop());
+        ObjString *a = AS_STRING(pop());
 
         int len = a->len + b->len;
         char *chars = MEM_ALLOC(char, len + 1);
@@ -138,11 +138,11 @@ InterpretResult vm_interpret(Chunk *chunk) {
         chars[len] = '\0';
 
         ObjString *result = string_create(chars, len);
-        stack_push(OBJ_VAL(result));
-      } else if (IS_NUMBER(stack_peek(0)) && IS_NUMBER(stack_peek(1))) {
-        double b = AS_NUMBER(stack_pop());
-        double a = AS_NUMBER(stack_pop());
-        stack_push(NUMBER_VAL(a + b));
+        push(OBJ_VAL(result));
+      } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
+        double b = AS_NUMBER(pop());
+        double a = AS_NUMBER(pop());
+        push(NUMBER_VAL(a + b));
       } else {
         runtime_error("Operands must be two strings or two numbers.");
         return INTERPRET_RUNTIME_ERROR;
@@ -150,41 +150,41 @@ InterpretResult vm_interpret(Chunk *chunk) {
       break;
 
     case OP_NOT:
-      stack_push(BOOL_VAL(value_is_falsey(stack_pop())));
+      push(BOOL_VAL(value_is_falsey(pop())));
       break;
 
     case OP_EQUAL: {
-      Value b = stack_pop();
-      Value a = stack_pop();
-      stack_push(BOOL_VAL(value_is_equal(a, b)));
+      Value b = pop();
+      Value a = pop();
+      push(BOOL_VAL(value_is_equal(a, b)));
       break;
     }
 
     case OP_NIL:
-      stack_push(NIL_VAL);
+      push(NIL_VAL);
       break;
 
     case OP_TRUE:
-      stack_push(BOOL_VAL(true));
+      push(BOOL_VAL(true));
       break;
 
     case OP_FALSE:
-      stack_push(BOOL_VAL(false));
+      push(BOOL_VAL(false));
       break;
 
     case OP_PRINT:
-      value_print(stack_pop());
+      value_print(pop());
       printf("\n");
       break;
 
     case OP_POP:
-      stack_pop();
+      pop();
       break;
 
     case OP_DEFINE_GLOBAL: {
       ObjString *name = READ_STRING();
-      table_set(&vm.globals, name, stack_peek(0));
-      stack_pop();
+      table_set(&vm.globals, name, peek(0));
+      pop();
       break;
     }
 
@@ -197,14 +197,14 @@ InterpretResult vm_interpret(Chunk *chunk) {
         return INTERPRET_RUNTIME_ERROR;
       }
 
-      stack_push(value);
+      push(value);
       break;
     }
 
     case OP_SET_GLOBAL: {
       ObjString *name = READ_STRING();
 
-      if (table_set(&vm.globals, name, stack_peek(0))) {
+      if (table_set(&vm.globals, name, peek(0))) {
         table_remove(&vm.globals, name);
         runtime_error("Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
@@ -214,11 +214,11 @@ InterpretResult vm_interpret(Chunk *chunk) {
     }
 
     case OP_GET_LOCAL:
-      stack_push(vm.stack[READ_BYTE()]);
+      push(vm.stack[READ_BYTE()]);
       break;
 
     case OP_SET_LOCAL:
-      vm.stack[READ_BYTE()] = stack_peek(0);
+      vm.stack[READ_BYTE()] = peek(0);
       break;
 
     case OP_JUMP: {
@@ -235,7 +235,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
 
     case OP_JUMP_IF_TRUE: {
       uint16_t offset = READ_SHORT();
-      if (!value_is_falsey(stack_peek(0))) {
+      if (!value_is_falsey(peek(0))) {
         vm.ip += offset;
       }
       break;
@@ -243,7 +243,7 @@ InterpretResult vm_interpret(Chunk *chunk) {
 
     case OP_JUMP_IF_FALSE: {
       uint16_t offset = READ_SHORT();
-      if (value_is_falsey(stack_peek(0))) {
+      if (value_is_falsey(peek(0))) {
         vm.ip += offset;
       }
       break;
