@@ -118,10 +118,42 @@ static uint8_t emit_identifier(Token *token) {
   return (uint8_t)chunk_push_const(current_chunk, OBJ_VAL(name));
 }
 
+static int emit_jump(OpCode instruction) {
+  emit_byte(instruction);
+  emit_byte(0xFF);
+  emit_byte(0xFF);
+
+  return current_chunk->len - 2;
+}
+
+static void patch_jump(int offset) {
+  unsigned int distance = current_chunk->len - offset - 2;
+
+  if (distance > UINT16_MAX) {
+    report_error("Too much code to jump over.");
+  }
+
+  current_chunk->code[offset] = (distance >> 8) & 0xFF;
+  current_chunk->code[offset + 1] = (distance) & 0xFF;
+}
+
+static void emit_jump_back(int start) {
+  unsigned int distance = current_chunk->len - start + 3;
+
+  if (distance > UINT16_MAX) {
+    report_error("Too much code to jump over.");
+  }
+
+  emit_byte(OP_JUMP_BACK);
+  emit_byte((distance >> 8) & 0xFF);
+  emit_byte(distance & 0xFF);
+}
+
 // Forward declaration.
 static void expression(void);
 static void statement(void);
 static void declaration(void);
+static void declaration_variable(void);
 
 static inline bool token_is_equal(Token *lhs, Token *rhs) {
   return (lhs->len == rhs->len) &&
@@ -250,8 +282,9 @@ static void expression_factor(void) {
   expression_unary();
 
   while (match(TOKEN_STAR) || match(TOKEN_SLASH)) {
+    OpCode op = (parser.last.kind == TOKEN_STAR) ? OP_MULTIPLY : OP_DIVIDE;
     expression_unary();
-    emit_byte((parser.last.kind == TOKEN_STAR) ? OP_MULTIPLY : OP_DIVIDE);
+    emit_byte(op);
   }
 }
 
@@ -259,8 +292,9 @@ static void expression_term(void) {
   expression_factor();
 
   while (match(TOKEN_PLUS) || match(TOKEN_MINUS)) {
+    OpCode op = (parser.last.kind == TOKEN_PLUS) ? OP_ADD : OP_SUBTRACT;
     expression_factor();
-    emit_byte((parser.last.kind == TOKEN_PLUS) ? OP_ADD : OP_SUBTRACT);
+    emit_byte(op);
   }
 }
 
@@ -314,8 +348,34 @@ static void expression_comparison(void) {
   }
 }
 
-static void expression(void) {
+static void expression_and(void) {
   expression_comparison();
+
+  if (match(TOKEN_AND)) {
+    int end_offset = emit_jump(OP_JUMP_IF_FALSE);
+
+    emit_byte(OP_POP);
+    expression_and();
+
+    patch_jump(end_offset);
+  }
+}
+
+static void expression_or(void) {
+  expression_and();
+
+  if (match(TOKEN_OR)) {
+    int end_offset = emit_jump(OP_JUMP_IF_TRUE);
+
+    emit_byte(OP_POP);
+    expression_or();
+
+    patch_jump(end_offset);
+  }
+}
+
+static void expression(void) {
+  expression_or();
 }
 
 static void statement_print(void) {
@@ -346,14 +406,114 @@ static void statement_expression(void) {
   emit_byte(OP_POP);
 }
 
+static void statement_if(void) {
+  advance();
+  expect(TOKEN_LEFT_PAREN, "Expected ( after 'if'.");
+  expression();
+  expect(TOKEN_RIGHT_PAREN, "Expected ) after condition.");
+
+  int then_offset = emit_jump(OP_JUMP_IF_FALSE);
+
+  emit_byte(OP_POP);
+  statement();
+
+  int else_offset = emit_jump(OP_JUMP);
+  patch_jump(then_offset);
+
+  emit_byte(OP_POP);
+  if (match(TOKEN_ELSE)) {
+    statement();
+  }
+
+  patch_jump(else_offset);
+}
+
+static void statement_while(void) {
+  int start = current_chunk->len;
+
+  advance();
+  expect(TOKEN_LEFT_PAREN, "Expected ( after 'while'.");
+  expression();
+  expect(TOKEN_RIGHT_PAREN, "Expected ) after condition.");
+
+  int exit_offset = emit_jump(OP_JUMP_IF_FALSE);
+
+  emit_byte(OP_POP);
+  statement();
+  emit_jump_back(start);
+
+  patch_jump(exit_offset);
+  emit_byte(OP_POP);
+}
+
+static void statement_for(void) {
+  advance();
+  scope_begin();
+  expect(TOKEN_LEFT_PAREN, "Expected ( after 'for'.");
+
+  if (!match(TOKEN_SEMICOLON)) {
+    if (match(TOKEN_LET)) {
+      declaration_variable();
+    } else {
+      statement_expression();
+    }
+  }
+
+  int loop_start = current_chunk->len;
+  int exit_offset = -1;
+
+  if (!match(TOKEN_SEMICOLON)) {
+    expression();
+    expect(TOKEN_SEMICOLON, "Expected ; after loop condition.");
+
+    exit_offset = emit_jump(OP_JUMP_IF_FALSE);
+    emit_byte(OP_POP);
+  }
+
+  if (!match(TOKEN_RIGHT_PAREN)) {
+    int body_offset = emit_jump(OP_JUMP);
+    int increment_start = current_chunk->len;
+
+    expression();
+    emit_byte(OP_POP);
+    emit_jump_back(loop_start);
+    loop_start = increment_start;
+    patch_jump(body_offset);
+
+    expect(TOKEN_RIGHT_PAREN, "Expected ) after loop clauses.");
+  }
+
+  statement();
+  emit_jump_back(loop_start);
+
+  if (exit_offset != -1) {
+    patch_jump(exit_offset);
+    emit_byte(OP_POP);
+  }
+
+  scope_end();
+}
+
 static void statement(void) {
   switch (peek().kind) {
+  case TOKEN_LEFT_BRACE:
+    statement_block();
+    break;
+
   case TOKEN_PRINT:
     statement_print();
     break;
 
-  case TOKEN_LEFT_BRACE:
-    statement_block();
+  case TOKEN_IF:
+    statement_if();
+    break;
+
+  case TOKEN_WHILE:
+    statement_while();
+    break;
+
+  case TOKEN_FOR:
+    statement_for();
     break;
 
   default:

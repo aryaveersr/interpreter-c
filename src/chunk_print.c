@@ -19,6 +19,16 @@ static int instruction_byte(const char *name, Chunk *chunk, int offset) {
   return offset + 2;
 }
 
+static int instruction_jump(const char *name, int sign, Chunk *chunk,
+                            int offset) {
+  uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
+
+  jump |= chunk->code[offset + 2];
+  printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+
+  return offset + 3;
+}
+
 #define SIMPLE_INSTR(name)                                                     \
   case name:                                                                   \
     printf(#name "\n");                                                        \
@@ -31,6 +41,10 @@ static int instruction_byte(const char *name, Chunk *chunk, int offset) {
 #define BYTE_INSTR(name)                                                       \
   case name:                                                                   \
     return instruction_byte(#name, chunk, offset)
+
+#define JUMP_INSTR(name, sign)                                                 \
+  case name:                                                                   \
+    return instruction_jump(#name, sign, chunk, offset)
 
 int chunk_print_instr(Chunk *chunk, int offset) {
   printf("%04d %4d ", offset, chunk_get_line(chunk, offset));
@@ -66,6 +80,11 @@ int chunk_print_instr(Chunk *chunk, int offset) {
 
     BYTE_INSTR(OP_GET_LOCAL);
     BYTE_INSTR(OP_SET_LOCAL);
+
+    JUMP_INSTR(OP_JUMP, 1);
+    JUMP_INSTR(OP_JUMP_BACK, -1);
+    JUMP_INSTR(OP_JUMP_IF_TRUE, 1);
+    JUMP_INSTR(OP_JUMP_IF_FALSE, 1);
 
   default:
     printf("Unknown opcode: '%d'.\n", instr);

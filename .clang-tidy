@@ -32,6 +32,8 @@ Checks: "*,
         -concurrency-mt-unsafe,
 
         -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+
+        -hicpp-signed-bitwise,
 "
 WarningsAsErrors: true
 CheckOptions:
