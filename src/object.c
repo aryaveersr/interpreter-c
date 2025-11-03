@@ -1,4 +1,5 @@
 #include "object.h"
+#include "chunk.h"
 #include "mem.h"
 #include "table.h"
 #include "value.h"
@@ -51,7 +52,7 @@ static ObjString *strings_find(const char *chars, int len, uint32_t hash) {
   }
 }
 
-ObjString *string_create(const char *chars, int len) {
+ObjString *string_new(const char *chars, int len) {
   uint32_t hash = hash_fnv1a(chars, len);
   ObjString *string = strings_find(chars, len, hash);
 
@@ -75,5 +76,22 @@ ObjString *string_copy(const char *chars, int len) {
   char *ptr = MEM_ALLOC(char, len + 1);
   memcpy(ptr, chars, len);
   ptr[len] = '\0';
-  return string_create(ptr, len);
+  return string_new(ptr, len);
+}
+
+ObjFunction *function_new(void) {
+  ObjFunction *function = ALLOC_OBJ(ObjFunction, OBJ_FUNCTION);
+
+  function->arity = 0;
+  function->name = NULL;
+
+  chunk_init(&function->chunk);
+
+  return function;
+}
+
+ObjNativeFn *native_new(NativeFn function) {
+  ObjNativeFn *native = ALLOC_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
+  native->function = function;
+  return native;
 }

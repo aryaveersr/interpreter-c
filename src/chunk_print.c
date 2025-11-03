@@ -21,9 +21,9 @@ static int instruction_byte(const char *name, Chunk *chunk, int offset) {
 
 static int instruction_jump(const char *name, int sign, Chunk *chunk,
                             int offset) {
-  uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
+  uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8) |
+                  (uint16_t)chunk->code[offset + 2];
 
-  jump |= chunk->code[offset + 2];
   printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
 
   return offset + 3;
@@ -81,6 +81,8 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     BYTE_INSTR(OP_GET_LOCAL);
     BYTE_INSTR(OP_SET_LOCAL);
 
+    BYTE_INSTR(OP_CALL);
+
     JUMP_INSTR(OP_JUMP, 1);
     JUMP_INSTR(OP_JUMP_BACK, -1);
     JUMP_INSTR(OP_JUMP_IF_TRUE, 1);
@@ -95,7 +97,7 @@ int chunk_print_instr(Chunk *chunk, int offset) {
 }
 
 void chunk_print(Chunk *chunk, const char *name) {
-  printf("== %s (length: %05d) ==\n", name, chunk->len);
+  printf("== %s (length: %03d) ==\n", name, chunk->len);
 
   for (int offset = 0; offset < chunk->len;) {
     offset = chunk_print_instr(chunk, offset);

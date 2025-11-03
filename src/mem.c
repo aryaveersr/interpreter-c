@@ -1,4 +1,5 @@
 #include "mem.h"
+#include "chunk.h"
 #include "object.h"
 #include "value.h"
 #include <stdlib.h>
@@ -21,8 +22,6 @@ void *mem_realloc(void *ptr, size_t old_size, size_t new_size) {
 }
 
 void object_free(Obj *object) {
-#pragma clang diagnostic push
-#pragma clang diagnostic warning "-Wswitch-enum"
   switch (object->kind) {
   case OBJ_STRING: {
     ObjString *string = (ObjString *)object;
@@ -30,6 +29,16 @@ void object_free(Obj *object) {
     MEM_FREE(ObjString, object);
     break;
   }
+
+  case OBJ_FUNCTION: {
+    ObjFunction *function = (ObjFunction *)object;
+    chunk_free(&function->chunk);
+    MEM_FREE(ObjFunction, object);
+    break;
   }
-#pragma clang diagnostic pop
+
+  case OBJ_NATIVE_FN:
+    MEM_FREE(ObjNativeFn, object);
+    break;
+  }
 }

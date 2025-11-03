@@ -1,9 +1,11 @@
 #ifndef COMPILER_H
 #define COMPILER_H
 
-#include "chunk.h"
+#include "object.h"
 #include <stdbool.h>
 
-bool compiler_compile(Chunk *chunk);
+#define DUMP_CODE
+
+ObjFunction *compiler_compile(void);
 
 #endif

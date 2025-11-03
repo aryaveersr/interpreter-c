@@ -1,6 +1,6 @@
-#include "chunk.h"
 #include "compiler.h"
 #include "lexer.h"
+#include "object.h"
 #include "vm.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -10,20 +10,13 @@
 static InterpretResult run_source(const char *source) {
   lexer_init(source);
 
-  Chunk chunk;
-  chunk_init(&chunk);
+  ObjFunction *function = compiler_compile();
 
-  if (!compiler_compile(&chunk)) {
-    chunk_free(&chunk);
+  if (function == NULL) {
     return INTERPRET_COMPILE_ERROR;
   }
 
-  chunk_print(&chunk, "Code");
-
-  InterpretResult result = vm_interpret(&chunk);
-
-  chunk_free(&chunk);
-  return result;
+  return vm_interpret(function);
 }
 
 static void repl(void) {

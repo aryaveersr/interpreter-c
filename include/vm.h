@@ -1,13 +1,13 @@
 #ifndef VM_H
 #define VM_H
 
-#include "chunk.h"
+#include "object.h"
 #include "table.h"
 #include "value.h"
 #include <stdint.h>
 
-#define TRACE_VM
-#define STACK_MAX 256
+#define FRAMES_MAX 64
+#define STACK_MAX (FRAMES_MAX * 256)
 
 typedef enum {
   INTERPRET_OK,
@@ -16,8 +16,14 @@ typedef enum {
 } InterpretResult;
 
 typedef struct {
-  Chunk *chunk;
+  ObjFunction *function;
   uint8_t *ip;
+  Value *slots;
+} CallFrame;
+
+typedef struct {
+  CallFrame frames[FRAMES_MAX];
+  int frames_len;
 
   Value *stack_top;
   Value stack[STACK_MAX];
@@ -32,6 +38,8 @@ extern VM vm;
 void vm_init(void);
 void vm_free(void);
 
-InterpretResult vm_interpret(Chunk *chunk);
+void define_native(const char *name, NativeFn function);
+
+InterpretResult vm_interpret(ObjFunction *function);
 
 #endif

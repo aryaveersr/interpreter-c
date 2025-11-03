@@ -13,10 +13,20 @@ typedef struct {
   int depth;
 } Local;
 
-typedef struct {
+typedef enum {
+  TARGET_FUNCTION,
+  TARGET_SCRIPT,
+} TargetKind;
+
+typedef struct Compiler {
+  ObjFunction *function;
+  TargetKind kind;
+
   Local locals[UINT8_MAX + 1];
   int len;
   int depth;
+
+  struct Compiler *parent;
 } Compiler;
 
 typedef struct {
@@ -26,7 +36,6 @@ typedef struct {
 } Parser;
 
 static Parser parser;
-static Chunk *current_chunk;
 static Compiler *current;
 
 static void report_error_at(Token *token, const char *message) {
@@ -102,12 +111,16 @@ static bool match(TokenKind kind) {
   return true;
 }
 
+static Chunk *current_chunk(void) {
+  return &current->function->chunk;
+}
+
 static void emit_byte(uint8_t byte) {
-  chunk_write(current_chunk, byte, parser.last.line);
+  chunk_write(current_chunk(), byte, parser.last.line);
 }
 
 static void emit_const(Value value) {
-  int idx = chunk_push_const(current_chunk, value);
+  int idx = chunk_push_const(current_chunk(), value);
 
   emit_byte(OP_LOAD);
   emit_byte((uint8_t)idx);
@@ -115,7 +128,7 @@ static void emit_const(Value value) {
 
 static uint8_t emit_identifier(Token *token) {
   ObjString *name = string_copy(token->start, token->len);
-  return (uint8_t)chunk_push_const(current_chunk, OBJ_VAL(name));
+  return (uint8_t)chunk_push_const(current_chunk(), OBJ_VAL(name));
 }
 
 static int emit_jump(OpCode instruction) {
@@ -123,22 +136,22 @@ static int emit_jump(OpCode instruction) {
   emit_byte(0xFF);
   emit_byte(0xFF);
 
-  return current_chunk->len - 2;
+  return current_chunk()->len - 2;
 }
 
 static void patch_jump(int offset) {
-  unsigned int distance = current_chunk->len - offset - 2;
+  unsigned int distance = current_chunk()->len - offset - 2;
 
   if (distance > UINT16_MAX) {
     report_error("Too much code to jump over.");
   }
 
-  current_chunk->code[offset] = (distance >> 8) & 0xFF;
-  current_chunk->code[offset + 1] = (distance) & 0xFF;
+  current_chunk()->code[offset] = (distance >> 8) & 0xFF;
+  current_chunk()->code[offset + 1] = (distance) & 0xFF;
 }
 
 static void emit_jump_back(int start) {
-  unsigned int distance = current_chunk->len - start + 3;
+  unsigned int distance = current_chunk()->len - start + 3;
 
   if (distance > UINT16_MAX) {
     report_error("Too much code to jump over.");
@@ -149,11 +162,13 @@ static void emit_jump_back(int start) {
   emit_byte(distance & 0xFF);
 }
 
-// Forward declaration.
+// Forward declarations.
 static void expression(void);
 static void statement(void);
 static void declaration(void);
 static void declaration_variable(void);
+static void compiler_init(Compiler *compiler, TargetKind kind);
+static ObjFunction *compiler_finish(void);
 
 static inline bool token_is_equal(Token *lhs, Token *rhs) {
   return (lhs->len == rhs->len) &&
@@ -168,7 +183,7 @@ static void scope_end(void) {
   current->depth -= 1;
 
   while (current->len > 0) {
-    if (current->locals[current->len - 1].depth > current->depth) {
+    if (current->locals[current->len - 1].depth <= current->depth) {
       break;
     }
 
@@ -259,22 +274,47 @@ static void expression_primary(void) {
   }
 }
 
+static void expression_call(void) {
+  expression_primary();
+
+  if (match(TOKEN_LEFT_PAREN)) {
+    uint8_t arg_len = 0;
+
+    if (!match(TOKEN_RIGHT_PAREN)) {
+      do {
+        if (arg_len == UINT8_MAX) {
+          report_error("Can't have more than 255 arguments.");
+        }
+
+        expression();
+        arg_len++;
+      } while (match(TOKEN_COMMA));
+
+      expect(TOKEN_RIGHT_PAREN, "Expected ) after arguments.");
+    }
+
+    emit_byte(OP_CALL);
+    emit_byte(arg_len);
+  }
+}
+
 static void expression_unary(void) {
   switch (peek().kind) {
   case TOKEN_MINUS:
     advance();
-    expression_primary();
+    expression_call();
     emit_byte(OP_NEGATE);
     break;
 
   case TOKEN_BANG:
     advance();
-    expression_primary();
+    expression_call();
     emit_byte(OP_NOT);
     break;
 
   default:
-    expression_primary();
+    expression_call();
+    break;
   }
 }
 
@@ -429,7 +469,7 @@ static void statement_if(void) {
 }
 
 static void statement_while(void) {
-  int start = current_chunk->len;
+  int start = current_chunk()->len;
 
   advance();
   expect(TOKEN_LEFT_PAREN, "Expected ( after 'while'.");
@@ -459,7 +499,7 @@ static void statement_for(void) {
     }
   }
 
-  int loop_start = current_chunk->len;
+  int loop_start = current_chunk()->len;
   int exit_offset = -1;
 
   if (!match(TOKEN_SEMICOLON)) {
@@ -472,7 +512,7 @@ static void statement_for(void) {
 
   if (!match(TOKEN_RIGHT_PAREN)) {
     int body_offset = emit_jump(OP_JUMP);
-    int increment_start = current_chunk->len;
+    int increment_start = current_chunk()->len;
 
     expression();
     emit_byte(OP_POP);
@@ -492,6 +532,22 @@ static void statement_for(void) {
   }
 
   scope_end();
+}
+
+static void statement_return(void) {
+  advance();
+  if (current->kind == TARGET_SCRIPT) {
+    report_error("Can't return from top-level code.");
+  }
+
+  if (match(TOKEN_SEMICOLON)) {
+    emit_byte(OP_NIL);
+    emit_byte(OP_RETURN);
+  } else {
+    expression();
+    emit_byte(OP_RETURN);
+    expect(TOKEN_SEMICOLON, "Expected ; after return value.");
+  }
 }
 
 static void statement(void) {
@@ -516,9 +572,39 @@ static void statement(void) {
     statement_for();
     break;
 
+  case TOKEN_RETURN:
+    statement_return();
+    break;
+
   default:
     statement_expression();
     break;
+  }
+}
+
+static void synchronize(void) {
+  parser.panic = false;
+
+  while (!match(TOKEN_EOF)) {
+    switch (peek().kind) {
+    case TOKEN_CLASS:
+    case TOKEN_FUNCTION:
+    case TOKEN_LET:
+    case TOKEN_FOR:
+    case TOKEN_IF:
+    case TOKEN_WHILE:
+    case TOKEN_PRINT:
+    case TOKEN_RETURN:
+      return;
+
+    case TOKEN_SEMICOLON:
+      advance();
+      return;
+
+    default:
+      advance();
+      continue;
+    }
   }
 }
 
@@ -554,7 +640,7 @@ static void declare_variable(void) {
   add_local(parser.last);
 }
 
-static uint8_t variable(const char *message) {
+static uint8_t parse_identifier(const char *message) {
   expect(TOKEN_IDENTIFIER, message);
   declare_variable();
 
@@ -576,7 +662,7 @@ static void define_variable(uint8_t global) {
 }
 
 static void declaration_variable(void) {
-  uint8_t global = variable("Expected variable name.");
+  uint8_t global = parse_identifier("Expected variable name.");
 
   if (match(TOKEN_EQUAL)) {
     expression();
@@ -588,35 +674,51 @@ static void declaration_variable(void) {
   define_variable(global);
 }
 
-static void synchronize(void) {
-  parser.panic = false;
+static void function(TargetKind kind) {
+  Compiler compiler;
+  compiler_init(&compiler, kind);
+  scope_begin();
 
-  while (!match(TOKEN_EOF)) {
-    switch (peek().kind) {
-    case TOKEN_CLASS:
-    case TOKEN_FUNCTION:
-    case TOKEN_LET:
-    case TOKEN_FOR:
-    case TOKEN_IF:
-    case TOKEN_WHILE:
-    case TOKEN_PRINT:
-    case TOKEN_RETURN:
-      return;
+  expect(TOKEN_LEFT_PAREN, "Expected (.");
 
-    case TOKEN_SEMICOLON:
-      advance();
-      return;
+  if (!match(TOKEN_RIGHT_PAREN)) {
+    do {
+      current->function->arity++;
+      if (current->function->arity > 255) {
+        report_error("Can't have more than 255 parameters.");
+      }
 
-    default:
-      advance();
-      continue;
-    }
+      uint8_t constant = parse_identifier("Expected parameter name.");
+      define_variable(constant);
+    } while (match(TOKEN_COMMA));
+
+    expect(TOKEN_RIGHT_PAREN, "Expected ) after parameters.");
   }
+
+  Token next = peek();
+
+  if (peek().kind != TOKEN_LEFT_BRACE) {
+    report_error_at(&next, "Expected { before function body.");
+  }
+
+  statement_block();
+
+  ObjFunction *function = compiler_finish();
+  emit_const(OBJ_VAL(function));
+}
+
+static void declaration_function(void) {
+  uint8_t global = parse_identifier("Expected function name.");
+  current->locals[current->len - 1].depth = current->depth;
+  function(TARGET_FUNCTION);
+  define_variable(global);
 }
 
 static void declaration(void) {
   if (match(TOKEN_LET)) {
     declaration_variable();
+  } else if (match(TOKEN_FUNCTION)) {
+    declaration_function();
   } else {
     statement();
   }
@@ -626,18 +728,53 @@ static void declaration(void) {
   }
 }
 
-bool compiler_compile(Chunk *chunk) {
-  Compiler compiler = {.depth = 0, .len = 0};
+static void compiler_init(Compiler *compiler, TargetKind kind) {
+  compiler->function = NULL;
+  compiler->kind = kind;
+  compiler->len = 0;
+  compiler->depth = 0;
+  compiler->parent = current;
 
+  compiler->function = function_new();
+  current = compiler;
+
+  if (kind != TARGET_SCRIPT) {
+    current->function->name = string_copy(parser.last.start, parser.last.len);
+  }
+
+  Local *local = &compiler->locals[compiler->len++];
+
+  local->depth = 0;
+  local->name.start = "";
+  local->name.len = 0;
+}
+
+static ObjFunction *compiler_finish(void) {
+  ObjFunction *function = current->function;
+
+  emit_byte(OP_NIL);
+  emit_byte(OP_RETURN);
+
+#ifdef DUMP_CODE
+  chunk_print(&function->chunk,
+              function->name == NULL ? "<script>" : function->name->chars);
+#endif
+
+  current = current->parent;
+  return function;
+}
+
+ObjFunction *compiler_compile(void) {
   parser.had_error = false;
   parser.panic = false;
-  current_chunk = chunk;
-  current = &compiler;
+
+  Compiler compiler;
+  compiler_init(&compiler, TARGET_SCRIPT);
 
   while (!match(TOKEN_EOF)) {
     declaration();
   }
 
-  emit_byte(OP_RETURN);
-  return !parser.had_error;
+  ObjFunction *function = compiler_finish();
+  return parser.had_error ? NULL : function;
 }

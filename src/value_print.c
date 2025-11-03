@@ -2,9 +2,31 @@
 #include "value.h"
 #include <stdio.h>
 
+static void object_print(Value value) {
+  switch (OBJ_KIND(value)) {
+  case OBJ_STRING:
+    printf("%s", AS_CSTRING(value));
+    break;
+
+  case OBJ_FUNCTION: {
+    ObjFunction *function = AS_FUNCTION(value);
+
+    if (function->name == NULL) {
+      printf("<script>");
+    } else {
+      printf("<function '%s'(%d)>", function->name->chars, function->arity);
+    }
+
+    break;
+  }
+
+  case OBJ_NATIVE_FN:
+    printf("<native function>");
+    break;
+  }
+}
+
 void value_print(Value value) {
-#pragma clang diagnostic push
-#pragma clang diagnostic warning "-Wswitch-enum"
   switch (value.kind) {
   case VAL_NIL:
     printf("nil");
@@ -19,8 +41,7 @@ void value_print(Value value) {
     break;
 
   case VAL_OBJ:
-    printf("'%s'", AS_CSTRING(value));
+    object_print(value);
     break;
   }
-#pragma clang diagnostic pop
 }

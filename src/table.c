@@ -69,7 +69,7 @@ static void adjust_capacity(Table *table, int capacity) {
   table->capacity = capacity;
 }
 
-bool table_set(Table *table, struct ObjString *key, Value value) {
+bool table_set(Table *table, ObjString *key, Value value) {
   if (table->len + 1 > table->capacity * TABLE_MAX_LOAD) {
     int capacity = MEM_GROW_CAPACITY(table->capacity);
     adjust_capacity(table, capacity);
