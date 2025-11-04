@@ -589,7 +589,7 @@ static void synchronize(void) {
   while (!match(TOKEN_EOF)) {
     switch (peek().kind) {
     case TOKEN_CLASS:
-    case TOKEN_FUNCTION:
+    case TOKEN_FUN:
     case TOKEN_LET:
     case TOKEN_FOR:
     case TOKEN_IF:
@@ -718,7 +718,7 @@ static void declaration_function(void) {
 static void declaration(void) {
   if (match(TOKEN_LET)) {
     declaration_variable();
-  } else if (match(TOKEN_FUNCTION)) {
+  } else if (match(TOKEN_FUN)) {
     declaration_function();
   } else {
     statement();

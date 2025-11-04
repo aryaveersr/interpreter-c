@@ -36,7 +36,7 @@ typedef enum {
   TOKEN_FALSE,
 
   // Keywords.
-  TOKEN_FUNCTION,
+  TOKEN_FUN,
   TOKEN_RETURN,
   TOKEN_IF,
   TOKEN_ELSE,

@@ -135,7 +135,7 @@ static TokenKind identifier_kind(void) {
   }
 
   // clang-format off
-  MATCH_KEYWORD("function", TOKEN_FUNCTION)
+  MATCH_KEYWORD("fun", TOKEN_FUN)
   else MATCH_KEYWORD("return", TOKEN_RETURN)
   else MATCH_KEYWORD("if", TOKEN_IF)
   else MATCH_KEYWORD("else", TOKEN_ELSE)
