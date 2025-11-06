@@ -30,6 +30,7 @@ typedef enum {
 
 struct Obj {
   ObjKind kind;
+  bool is_marked;
   struct Obj *next;
 };
 

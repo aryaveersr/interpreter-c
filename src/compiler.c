@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include "chunk.h"
 #include "lexer.h"
+#include "mem.h"
 #include "object.h"
 #include "value.h"
 #include <stdbool.h>
@@ -839,4 +840,13 @@ ObjFunction *compiler_compile(void) {
 
   ObjFunction *function = compiler_finish();
   return parser.had_error ? NULL : function;
+}
+
+void mark_compiler_roots(void) {
+  Compiler *compiler = current;
+
+  while (compiler != NULL) {
+    mark_object((Obj *)compiler->function);
+    compiler = compiler->parent;
+  }
 }

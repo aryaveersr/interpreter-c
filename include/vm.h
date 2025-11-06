@@ -5,6 +5,7 @@
 #include "table.h"
 #include "value.h"
 #include <stdint.h>
+#include <stdlib.h>
 
 #define FRAMES_MAX 64
 #define STACK_MAX (FRAMES_MAX * 256)
@@ -32,12 +33,22 @@ typedef struct {
   ObjUpvalue *open_upvalues;
   Table strings;
   Table globals;
+
+  int gray_len;
+  int gray_capacity;
+  Obj **gray_stack;
+
+  size_t bytes_allocated;
+  size_t gc_target;
 } VM;
 
 extern VM vm;
 
 void vm_init(void);
 void vm_free(void);
+
+void push(Value value);
+Value pop(void);
 
 void define_native(const char *name, NativeFn function);
 

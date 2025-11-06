@@ -1,6 +1,7 @@
 #include "chunk.h"
 #include "mem.h"
 #include "value_list.h"
+#include "vm.h"
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -55,7 +56,9 @@ void chunk_write(Chunk *chunk, uint8_t byte, uint16_t line) {
 }
 
 int chunk_push_const(Chunk *chunk, Value value) {
+  push(value);
   valuelist_write(&chunk->consts, value);
+  pop();
   return chunk->consts.len - 1;
 }
 

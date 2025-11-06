@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -28,6 +29,13 @@ void vm_init(void) {
   vm.objects = NULL;
   vm.open_upvalues = NULL;
 
+  vm.gray_len = 0;
+  vm.gray_capacity = 0;
+  vm.gray_stack = NULL;
+
+  vm.bytes_allocated = 0;
+  vm.gc_target = (size_t)(1024 * 1024);
+
   table_init(&vm.strings);
   table_init(&vm.globals);
   reset_stack();
@@ -46,14 +54,15 @@ void vm_free(void) {
 
   table_free(&vm.strings);
   table_free(&vm.globals);
+  free(vm.gray_stack);
 }
 
-static void push(Value value) {
+void push(Value value) {
   *vm.stack_top = value;
   vm.stack_top += 1;
 }
 
-static Value pop(void) {
+Value pop(void) {
   vm.stack_top -= 1;
   return *vm.stack_top;
 }
@@ -263,8 +272,8 @@ static InterpretResult run(void) {
 
     case OP_ADD:
       if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
-        ObjString *b = AS_STRING(pop());
-        ObjString *a = AS_STRING(pop());
+        ObjString *b = AS_STRING(peek(0));
+        ObjString *a = AS_STRING(peek(1));
 
         int len = a->len + b->len;
         char *chars = MEM_ALLOC(char, len + 1);
@@ -272,7 +281,10 @@ static InterpretResult run(void) {
         memcpy(chars + a->len, b->chars, b->len);
         chars[len] = '\0';
 
-        push(OBJ_VAL(string_new(chars, len)));
+        ObjString *result = string_new(chars, len);
+        pop();
+        pop();
+        push(OBJ_VAL(result));
       } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
         double b = AS_NUMBER(pop());
         double a = AS_NUMBER(pop());

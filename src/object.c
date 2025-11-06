@@ -6,6 +6,7 @@
 #include "vm.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #define ALLOC_OBJ(type, kind) (type *)object_alloc(sizeof(type), kind)
@@ -14,8 +15,13 @@ static Obj *object_alloc(size_t size, ObjKind kind) {
   Obj *object = (Obj *)mem_realloc(NULL, 0, size);
 
   object->kind = kind;
+  object->is_marked = false;
   object->next = vm.objects;
   vm.objects = object;
+
+#ifdef LOG_GC
+  printf("-- %p allocated %zu for %d\n", (void *)object, size, kind);
+#endif
 
   return object;
 }
@@ -67,7 +73,9 @@ ObjString *string_new(const char *chars, int len) {
   string->chars = chars;
   string->hash = hash;
 
+  push(OBJ_VAL(string));
   table_set(&vm.strings, string, NIL_VAL);
+  pop();
 
   return string;
 }

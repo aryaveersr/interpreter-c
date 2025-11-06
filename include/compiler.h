@@ -6,5 +6,6 @@
 #define DUMP_CODE
 
 ObjFunction *compiler_compile(void);
+void mark_compiler_roots(void);
 
 #endif
