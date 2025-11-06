@@ -12,6 +12,7 @@
 typedef struct {
   Token name;
   int depth;
+  bool is_captured;
 } Local;
 
 typedef enum {
@@ -26,6 +27,8 @@ typedef struct Compiler {
   Local locals[UINT8_MAX + 1];
   int len;
   int depth;
+
+  Upvalue upvalues[UINT8_MAX + 1];
 
   struct Compiler *parent;
 } Compiler;
@@ -171,7 +174,7 @@ static void declaration_variable(void);
 static void compiler_init(Compiler *compiler, TargetKind kind);
 static ObjFunction *compiler_finish(void);
 
-static inline bool token_is_equal(Token *lhs, Token *rhs) {
+static inline bool tokens_equal(Token *lhs, Token *rhs) {
   return (lhs->len == rhs->len) &&
          (memcmp(lhs->start, rhs->start, lhs->len) == 0);
 }
@@ -188,16 +191,34 @@ static void scope_end(void) {
       break;
     }
 
-    emit_byte(OP_POP);
+    if (current->locals[current->len - 1].is_captured) {
+      emit_byte(OP_CLOSE_UPVALUE);
+    } else {
+      emit_byte(OP_POP);
+    }
+
     current->len--;
   }
 }
 
-static int scope_find_local(Compiler *compiler, Token *name) {
+static void add_local(Token name) {
+  if (current->len > UINT8_MAX) {
+    report_error("Too many local variables in the function.");
+    return;
+  }
+
+  Local *local = &current->locals[current->len++];
+
+  local->name = name;
+  local->depth = -1;
+  local->is_captured = false;
+}
+
+static int resolve_local(Compiler *compiler, Token *name) {
   for (int i = compiler->len - 1; i >= 0; i--) {
     Local *local = &compiler->locals[i];
 
-    if (!token_is_equal(&local->name, name)) {
+    if (!tokens_equal(&local->name, name)) {
       continue;
     }
 
@@ -211,19 +232,62 @@ static int scope_find_local(Compiler *compiler, Token *name) {
   return -1;
 }
 
-static void expression_variable(Token *name) {
-  uint8_t set_op = 0;
-  uint8_t get_op = 0;
+static int add_upvalue(Compiler *compiler, uint8_t idx, bool is_local) {
+  int upvalue_len = compiler->function->upvalue_len;
 
-  int idx = scope_find_local(current, name);
+  for (int i = 0; i < upvalue_len; i++) {
+    Upvalue *upvalue = &compiler->upvalues[i];
+
+    if (upvalue->idx == idx && upvalue->is_local == is_local) {
+      return i;
+    }
+  }
+
+  if (upvalue_len > UINT8_MAX) {
+    report_error("Too many closure variables in a function.");
+    return 0;
+  }
+
+  compiler->upvalues[upvalue_len].idx = idx;
+  compiler->upvalues[upvalue_len].is_local = is_local;
+
+  return compiler->function->upvalue_len++;
+}
+
+static int resolve_upvalue(Compiler *compiler, Token *name) {
+  if (compiler->parent != NULL) {
+    int local = resolve_local(compiler->parent, name);
+
+    if (local != -1) {
+      compiler->parent->locals[local].is_captured = true;
+      return add_upvalue(compiler, (uint8_t)local, true);
+    }
+
+    int upvalue = resolve_upvalue(compiler->parent, name);
+
+    if (upvalue != -1) {
+      return add_upvalue(compiler, (uint8_t)upvalue, false);
+    }
+  }
+
+  return -1;
+}
+
+static void expression_variable(Token *name) {
+  int idx = resolve_local(current, name);
+  uint8_t set_op = OP_SET_LOCAL;
+  uint8_t get_op = OP_GET_LOCAL;
+
+  if (idx == -1) {
+    idx = resolve_upvalue(current, name);
+    set_op = OP_SET_UPVALUE;
+    get_op = OP_GET_UPVALUE;
+  }
 
   if (idx == -1) {
     idx = emit_identifier(name);
     set_op = OP_SET_GLOBAL;
     get_op = OP_GET_GLOBAL;
-  } else {
-    set_op = OP_SET_LOCAL;
-    get_op = OP_GET_LOCAL;
   }
 
   if (match(TOKEN_EQUAL)) {
@@ -609,18 +673,6 @@ static void synchronize(void) {
   }
 }
 
-static void add_local(Token name) {
-  if (current->len > UINT8_MAX) {
-    report_error("Too many local variables in the function.");
-    return;
-  }
-
-  Local *local = &current->locals[current->len++];
-
-  local->name = name;
-  local->depth = -1;
-}
-
 static void declare_variable(void) {
   if (current->depth == 0) {
     return;
@@ -633,7 +685,7 @@ static void declare_variable(void) {
       break;
     }
 
-    if (token_is_equal(&parser.last, &local->name)) {
+    if (tokens_equal(&parser.last, &local->name)) {
       report_error("A variable with this name already exists in this scope.");
     }
   }
@@ -705,7 +757,15 @@ static void function(TargetKind kind) {
   statement_block();
 
   ObjFunction *function = compiler_finish();
-  emit_const(OBJ_VAL(function));
+  int idx = chunk_push_const(current_chunk(), OBJ_VAL(function));
+
+  emit_byte(OP_CLOSURE);
+  emit_byte((uint8_t)idx);
+
+  for (int i = 0; i < function->upvalue_len; i++) {
+    emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
+    emit_byte(compiler.upvalues[i].idx);
+  }
 }
 
 static void declaration_function(void) {
@@ -748,6 +808,7 @@ static void compiler_init(Compiler *compiler, TargetKind kind) {
   local->depth = 0;
   local->name.start = "";
   local->name.len = 0;
+  local->is_captured = false;
 }
 
 static ObjFunction *compiler_finish(void) {

@@ -40,5 +40,15 @@ void object_free(Obj *object) {
   case OBJ_NATIVE_FN:
     MEM_FREE(ObjNativeFn, object);
     break;
+
+  case OBJ_CLOSURE:
+    MEM_FREE_ARRAY(ObjUpvalue *, ((ObjClosure *)object)->upvalues,
+                   ((ObjClosure *)object)->upvalue_len);
+    MEM_FREE(ObjClosure, object);
+    break;
+
+  case OBJ_UPVALUE:
+    MEM_FREE(ObjUpvalue, object);
+    break;
   }
 }

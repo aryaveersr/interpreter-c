@@ -1,4 +1,5 @@
 #include "chunk.h"
+#include "object.h"
 #include "value.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -73,6 +74,8 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     SIMPLE_INSTR(OP_PRINT);
     SIMPLE_INSTR(OP_POP);
 
+    SIMPLE_INSTR(OP_CLOSE_UPVALUE);
+
     CONST_INSTR(OP_LOAD);
     CONST_INSTR(OP_DEFINE_GLOBAL);
     CONST_INSTR(OP_GET_GLOBAL);
@@ -80,6 +83,8 @@ int chunk_print_instr(Chunk *chunk, int offset) {
 
     BYTE_INSTR(OP_GET_LOCAL);
     BYTE_INSTR(OP_SET_LOCAL);
+    BYTE_INSTR(OP_GET_UPVALUE);
+    BYTE_INSTR(OP_SET_UPVALUE);
 
     BYTE_INSTR(OP_CALL);
 
@@ -87,6 +92,27 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     JUMP_INSTR(OP_JUMP_BACK, -1);
     JUMP_INSTR(OP_JUMP_IF_TRUE, 1);
     JUMP_INSTR(OP_JUMP_IF_FALSE, 1);
+
+  case OP_CLOSURE: {
+    offset++;
+    uint8_t idx = chunk->code[offset++];
+
+    printf("%-16s %4d ", "OP_CLOSURE", idx);
+    value_print(chunk->consts.values[idx]);
+    printf("\n");
+
+    ObjFunction *function = AS_FUNCTION(chunk->consts.values[idx]);
+
+    for (int i = 0; i < function->upvalue_len; i++) {
+      int is_local = chunk->code[offset++];
+      int idx = chunk->code[offset++];
+
+      printf("%04d      |                     %s %d\n", offset - 2,
+             is_local ? "Local" : "Upvalue", idx);
+    }
+
+    return offset;
+  }
 
   default:
     printf("Unknown opcode: '%d'.\n", instr);

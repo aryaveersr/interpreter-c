@@ -23,6 +23,14 @@ static void object_print(Value value) {
   case OBJ_NATIVE_FN:
     printf("<native function>");
     break;
+
+  case OBJ_CLOSURE:
+    object_print(OBJ_VAL(AS_CLOSURE(value)->function));
+    break;
+
+  case OBJ_UPVALUE:
+    printf("<upvalue>");
+    break;
   }
 }
 

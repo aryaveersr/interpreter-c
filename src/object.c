@@ -84,6 +84,7 @@ ObjFunction *function_new(void) {
 
   function->arity = 0;
   function->name = NULL;
+  function->upvalue_len = 0;
 
   chunk_init(&function->chunk);
 
@@ -94,4 +95,30 @@ ObjNativeFn *native_new(NativeFn function) {
   ObjNativeFn *native = ALLOC_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
   native->function = function;
   return native;
+}
+
+ObjClosure *closure_new(ObjFunction *function) {
+  ObjUpvalue **upvalues = MEM_ALLOC(ObjUpvalue *, function->upvalue_len);
+
+  for (int i = 0; i < function->upvalue_len; i++) {
+    upvalues[i] = NULL;
+  }
+
+  ObjClosure *closure = ALLOC_OBJ(ObjClosure, OBJ_CLOSURE);
+
+  closure->function = function;
+  closure->upvalues = upvalues;
+  closure->upvalue_len = function->upvalue_len;
+
+  return closure;
+}
+
+ObjUpvalue *upvalue_new(Value *slot) {
+  ObjUpvalue *upvalue = ALLOC_OBJ(ObjUpvalue, OBJ_UPVALUE);
+
+  upvalue->ptr = slot;
+  upvalue->next = NULL;
+  upvalue->closed = NIL_VAL;
+
+  return upvalue;
 }
