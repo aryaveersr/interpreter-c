@@ -63,17 +63,15 @@ int chunk_push_const(Chunk *chunk, Value value) {
 }
 
 int chunk_get_line(Chunk *chunk, int offset) {
-  uint16_t line = 0;
   int acc_offset = 0;
 
   for (int i = 0; i < chunk->lines_len && acc_offset <= offset; i += 2) {
-    line = chunk->lines[i];
     acc_offset += chunk->lines[i + 1] + 1;
+
+    if (acc_offset > offset) {
+      return chunk->lines[i];
+    }
   }
 
-  if (acc_offset <= offset) {
-    return -1;
-  } else {
-    return (int)line;
-  }
+  return -1;
 }
