@@ -130,3 +130,18 @@ ObjUpvalue *upvalue_new(Value *slot) {
 
   return upvalue;
 }
+
+ObjClass *class_new(ObjString *name) {
+  ObjClass *class = ALLOC_OBJ(ObjClass, OBJ_CLASS);
+  class->name = name;
+  return class;
+}
+
+ObjInstance *instance_new(ObjClass *class) {
+  ObjInstance *instance = ALLOC_OBJ(ObjInstance, OBJ_INSTANCE);
+
+  instance->class = class;
+  table_init(&instance->fields);
+
+  return instance;
+}

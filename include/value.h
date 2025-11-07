@@ -18,6 +18,7 @@
 #define IS_OBJ(value) ((value).kind == VAL_OBJ)
 
 typedef struct Obj Obj;
+typedef struct ObjString ObjString;
 
 typedef enum {
   VAL_NIL,

@@ -274,7 +274,7 @@ static int resolve_upvalue(Compiler *compiler, Token *name) {
   return -1;
 }
 
-static void expression_variable(Token *name) {
+static void expression_variable(Token *name, bool can_assign) {
   int idx = resolve_local(current, name);
   uint8_t set_op = OP_SET_LOCAL;
   uint8_t get_op = OP_GET_LOCAL;
@@ -291,7 +291,7 @@ static void expression_variable(Token *name) {
     get_op = OP_GET_GLOBAL;
   }
 
-  if (match(TOKEN_EQUAL)) {
+  if (can_assign && match(TOKEN_EQUAL)) {
     expression();
     emit_byte(set_op);
     emit_byte((uint8_t)idx);
@@ -301,7 +301,7 @@ static void expression_variable(Token *name) {
   }
 }
 
-static void expression_primary(void) {
+static void expression_primary(bool can_assign) {
   Token next = advance();
 
   switch (next.kind) {
@@ -331,7 +331,7 @@ static void expression_primary(void) {
     break;
 
   case TOKEN_IDENTIFIER:
-    expression_variable(&next);
+    expression_variable(&next, can_assign);
     break;
 
   default:
@@ -340,8 +340,26 @@ static void expression_primary(void) {
   }
 }
 
-static void expression_call(void) {
-  expression_primary();
+static void expression_property(bool can_assign) {
+  expression_primary(can_assign);
+
+  if (match(TOKEN_DOT)) {
+    expect(TOKEN_IDENTIFIER, "Expected property name after '.'.");
+    uint8_t name = emit_identifier(&parser.last);
+
+    if (can_assign && match(TOKEN_EQUAL)) {
+      expression();
+      emit_byte(OP_SET_PROPERTY);
+      emit_byte(name);
+    } else {
+      emit_byte(OP_GET_PROPERTY);
+      emit_byte(name);
+    }
+  }
+}
+
+static void expression_call(bool can_assign) {
+  expression_property(can_assign);
 
   if (match(TOKEN_LEFT_PAREN)) {
     uint8_t arg_len = 0;
@@ -364,86 +382,86 @@ static void expression_call(void) {
   }
 }
 
-static void expression_unary(void) {
+static void expression_unary(bool can_assign) {
   switch (peek().kind) {
   case TOKEN_MINUS:
     advance();
-    expression_call();
+    expression_call(false);
     emit_byte(OP_NEGATE);
     break;
 
   case TOKEN_BANG:
     advance();
-    expression_call();
+    expression_call(false);
     emit_byte(OP_NOT);
     break;
 
   default:
-    expression_call();
+    expression_call(can_assign);
     break;
   }
 }
 
-static void expression_factor(void) {
-  expression_unary();
+static void expression_factor(bool can_assign) {
+  expression_unary(can_assign);
 
   while (match(TOKEN_STAR) || match(TOKEN_SLASH)) {
     OpCode op = (parser.last.kind == TOKEN_STAR) ? OP_MULTIPLY : OP_DIVIDE;
-    expression_unary();
+    expression_unary(false);
     emit_byte(op);
   }
 }
 
-static void expression_term(void) {
-  expression_factor();
+static void expression_term(bool can_assign) {
+  expression_factor(can_assign);
 
   while (match(TOKEN_PLUS) || match(TOKEN_MINUS)) {
     OpCode op = (parser.last.kind == TOKEN_PLUS) ? OP_ADD : OP_SUBTRACT;
-    expression_factor();
+    expression_factor(false);
     emit_byte(op);
   }
 }
 
-static void expression_comparison(void) {
-  expression_term();
+static void expression_comparison(bool can_assign) {
+  expression_term(can_assign);
 
   while (true) {
     switch (peek().kind) {
     case TOKEN_LESSER:
       advance();
-      expression_term();
+      expression_term(false);
       emit_byte(OP_LESSER);
       continue;
 
     case TOKEN_LESSER_EQUAL:
       advance();
-      expression_term();
+      expression_term(false);
       emit_byte(OP_GREATER);
       emit_byte(OP_NOT);
       continue;
 
     case TOKEN_GREATER:
       advance();
-      expression_term();
+      expression_term(false);
       emit_byte(OP_GREATER);
       continue;
 
     case TOKEN_GREATER_EQUAL:
       advance();
-      expression_term();
+      expression_term(false);
       emit_byte(OP_LESSER);
       emit_byte(OP_NOT);
       continue;
 
     case TOKEN_EQUAL_EQUAL:
       advance();
-      expression_term();
+      expression_term(false);
       emit_byte(OP_EQUAL);
       continue;
 
     case TOKEN_BANG_EQUAL:
       advance();
-      expression_term();
+      expression_term(false);
       emit_byte(OP_EQUAL);
       emit_byte(OP_NOT);
       continue;
@@ -454,34 +472,34 @@ static void expression_comparison(void) {
   }
 }
 
-static void expression_and(void) {
-  expression_comparison();
+static void expression_and(bool can_assign) {
+  expression_comparison(can_assign);
 
   if (match(TOKEN_AND)) {
     int end_offset = emit_jump(OP_JUMP_IF_FALSE);
 
     emit_byte(OP_POP);
-    expression_and();
+    expression_and(false);
 
     patch_jump(end_offset);
   }
 }
 
-static void expression_or(void) {
-  expression_and();
+static void expression_or(bool can_assign) {
+  expression_and(can_assign);
 
   if (match(TOKEN_OR)) {
     int end_offset = emit_jump(OP_JUMP_IF_TRUE);
 
     emit_byte(OP_POP);
-    expression_or();
+    expression_or(false);
 
     patch_jump(end_offset);
   }
 }
 
 static void expression(void) {
-  expression_or();
+  expression_or(true);
 }
 
 static void statement_print(void) {
@@ -776,8 +794,25 @@ static void declaration_function(void) {
   define_variable(global);
 }
 
+static void declaration_class(void) {
+  expect(TOKEN_IDENTIFIER, "Expected class name.");
+
+  uint8_t name = emit_identifier(&parser.last);
+  declare_variable();
+
+  emit_byte(OP_CLASS);
+  emit_byte(name);
+
+  define_variable(name);
+
+  expect(TOKEN_LEFT_BRACE, "Expected { after class name.");
+  expect(TOKEN_RIGHT_BRACE, "Expected } after class body.");
+}
+
 static void declaration(void) {
-  if (match(TOKEN_LET)) {
+  if (match(TOKEN_CLASS)) {
+    declaration_class();
+  } else if (match(TOKEN_LET)) {
     declaration_variable();
   } else if (match(TOKEN_FUN)) {
     declaration_function();

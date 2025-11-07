@@ -6,9 +6,8 @@
 #include "value.h"
 #include "value_list.h"
 #include "vm.h"
-#include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
-#include <time.h>
 
 #define GC_HEAP_GROW_FACTOR 2
 
@@ -72,6 +71,17 @@ void object_free(Obj *object) {
   case OBJ_UPVALUE:
     MEM_FREE(ObjUpvalue, object);
     break;
+
+  case OBJ_CLASS:
+    MEM_FREE(ObjClass, object);
+    break;
+
+  case OBJ_INSTANCE: {
+    ObjInstance *instance = (ObjInstance *)object;
+    table_free(&instance->fields);
+    MEM_FREE(ObjInstance, object);
+    break;
+  }
   }
 }
 
@@ -176,6 +186,19 @@ static void blacken_object(Obj *object) {
       mark_object((Obj *)closure->upvalues[i]);
     }
 
+    break;
+  }
+
+  case OBJ_CLASS: {
+    ObjClass *class = (ObjClass *)object;
+    mark_object((Obj *)class->name);
+    break;
+  }
+
+  case OBJ_INSTANCE: {
+    ObjInstance *instance = (ObjInstance *)object;
+    mark_object((Obj *)instance->class);
+    mark_table(&instance->fields);
     break;
   }
   }

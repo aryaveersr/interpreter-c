@@ -18,7 +18,7 @@ void table_free(Table *table) {
   table_init(table);
 }
 
-static Entry *find_entry(Entry *entries, int capacity, ObjString *key) {
+static Entry *find_entry(Entry *entries, int capacity, struct ObjString *key) {
   uint32_t idx = key->hash % capacity;
   Entry *tombstone = NULL;
 

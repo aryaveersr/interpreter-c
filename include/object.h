@@ -2,6 +2,7 @@
 #define OBJECT_H
 
 #include "chunk.h"
+#include "table.h"
 #include "value.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,11 +15,15 @@
 #define AS_NATIVE(value) (((ObjNativeFn *)AS_OBJ(value))->function)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 #define AS_UPVALUE(value) ((ObjUpvalue *)AS_OBJ(value))
+#define AS_CLASS(value) ((ObjClass *)AS_OBJ(value))
+#define AS_INSTANCE(value) ((ObjInstance *)AS_OBJ(value))
 
 #define IS_STRING(value) obj_is_kind(value, OBJ_STRING)
 #define IS_FUNCTION(value) obj_is_kind(value, OBJ_FUNCTION)
 #define IS_NATIVE(value) obj_is_kind(value, OBJ_NATIVE_FN)
 #define IS_CLOSURE(value) obj_is_kind(value, OBJ_CLOSURE)
+#define IS_CLASS(value) obj_is_kind(value, OBJ_CLASS)
+#define IS_INSTANCE(value) obj_is_kind(value, OBJ_INSTANCE)
 
 typedef enum {
   OBJ_STRING,
@@ -26,6 +31,8 @@ typedef enum {
   OBJ_NATIVE_FN,
   OBJ_CLOSURE,
   OBJ_UPVALUE,
+  OBJ_CLASS,
+  OBJ_INSTANCE,
 } ObjKind;
 
 struct Obj {
@@ -34,12 +41,12 @@ struct Obj {
   struct Obj *next;
 };
 
-typedef struct {
+struct ObjString {
   Obj obj;
   int len;
   const char *chars;
   uint32_t hash;
-} ObjString;
+};
 
 typedef struct {
   uint8_t idx;
@@ -75,14 +82,27 @@ typedef struct {
   int upvalue_len;
 } ObjClosure;
 
+typedef struct {
+  Obj obj;
+  ObjString *name;
+} ObjClass;
+
+typedef struct {
+  Obj obj;
+  ObjClass *class;
+  Table fields;
+} ObjInstance;
+
 ObjString *string_copy(const char *chars, int len);
 ObjString *string_new(const char *chars, int len);
 ObjFunction *function_new(void);
 ObjNativeFn *native_new(NativeFn function);
 ObjClosure *closure_new(ObjFunction *function);
 ObjUpvalue *upvalue_new(Value *slot);
+ObjClass *class_new(ObjString *name);
+ObjInstance *instance_new(ObjClass *class);
 
-static inline bool obj_is_kind(Value value, ObjKind kind) {
+inline bool obj_is_kind(Value value, ObjKind kind) {
   return IS_OBJ(value) && (AS_OBJ(value)->kind == kind);
 }
 

@@ -31,6 +31,14 @@ static void object_print(Value value) {
   case OBJ_UPVALUE:
     printf("<upvalue>");
     break;
+
+  case OBJ_CLASS:
+    printf("%s", AS_CLASS(value)->name->chars);
+    break;
+
+  case OBJ_INSTANCE:
+    printf("instance of %s", AS_INSTANCE(value)->class->name->chars);
+    break;
   }
 }
 

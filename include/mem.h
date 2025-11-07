@@ -4,8 +4,8 @@
 #include "value.h"
 #include <stdlib.h>
 
-#define STRESS_GC
-#define LOG_GC
+// #define STRESS_GC
+// #define LOG_GC
 
 #define MEM_GROW_CAPACITY(capacity) ((capacity) < 8 ? 8 : (capacity) * 2)
 #define MEM_GROW_ARRAY(type, ptr, old_len, new_len)                            \

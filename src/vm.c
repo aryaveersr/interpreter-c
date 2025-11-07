@@ -137,6 +137,12 @@ static bool call_value(Value callee, int arg_len) {
       return true;
     }
 
+    case OBJ_CLASS: {
+      ObjClass *class = AS_CLASS(callee);
+      vm.stack_top[-arg_len - 1] = OBJ_VAL(instance_new(class));
+      return true;
+    }
+
     default:
       runtime_error("Cannot call object of kind '%d'.", AS_OBJ(callee)->kind);
       break;
@@ -438,6 +444,45 @@ static InterpretResult run(void) {
       close_upvalues(vm.stack_top - 1);
       pop();
       break;
+
+    case OP_CLASS:
+      push(OBJ_VAL(class_new(READ_STRING())));
+      break;
+
+    case OP_GET_PROPERTY: {
+      if (!IS_INSTANCE(peek(0))) {
+        runtime_error("Only instances can have properties.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      ObjInstance *instance = AS_INSTANCE(peek(0));
+      ObjString *property = READ_STRING();
+
+      Value value;
+      if (!table_get(&instance->fields, property, &value)) {
+        runtime_error("Undefined property '%s'.", property->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      pop();
+      push(value);
+      break;
+    }
+
+    case OP_SET_PROPERTY: {
+      if (!IS_INSTANCE(peek(1))) {
+        runtime_error("Only instances can have properties.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      ObjInstance *instance = AS_INSTANCE(peek(1));
+      table_set(&instance->fields, READ_STRING(), peek(0));
+
+      Value value = pop();
+      pop();
+      push(value);
+      break;
+    }
 
     default:
       printf("Unknown opcode: '%d'.\n", instr);
