@@ -22,5 +22,6 @@ void table_free(Table *table);
 bool table_set(Table *table, ObjString *key, Value value);
 bool table_get(Table *table, ObjString *key, Value *dest);
 bool table_remove(Table *table, ObjString *key);
+void table_add_all(Table *src, Table *dest);
 
 #endif
