@@ -58,6 +58,58 @@ static ObjString *strings_find(const char *chars, int len, uint32_t hash) {
   }
 }
 
+void object_free(Obj *object) {
+#ifdef LOG_GC
+  printf("-- %p free type %d\n", (void *)object, object->kind);
+#endif
+
+  switch (object->kind) {
+  case OBJ_STRING: {
+    ObjString *string = (ObjString *)object;
+    MEM_FREE_ARRAY(char, string->chars, string->len + 1);
+    MEM_FREE(ObjString, object);
+    break;
+  }
+
+  case OBJ_FUNCTION: {
+    ObjFunction *function = (ObjFunction *)object;
+    chunk_free(&function->chunk);
+    MEM_FREE(ObjFunction, object);
+    break;
+  }
+
+  case OBJ_NATIVE_FN:
+    MEM_FREE(ObjNativeFn, object);
+    break;
+
+  case OBJ_CLOSURE:
+    MEM_FREE_ARRAY(ObjUpvalue *, ((ObjClosure *)object)->upvalues,
+                   ((ObjClosure *)object)->upvalue_len);
+    MEM_FREE(ObjClosure, object);
+    break;
+
+  case OBJ_UPVALUE:
+    MEM_FREE(ObjUpvalue, object);
+    break;
+
+  case OBJ_CLASS:
+    table_free(&((ObjClass *)object)->methods);
+    MEM_FREE(ObjClass, object);
+    break;
+
+  case OBJ_INSTANCE: {
+    ObjInstance *instance = (ObjInstance *)object;
+    table_free(&instance->fields);
+    MEM_FREE(ObjInstance, object);
+    break;
+  }
+
+  case OBJ_BOUND_METHOD:
+    MEM_FREE(ObjBoundMethod, object);
+    break;
+  }
+}
+
 ObjString *string_new(const char *chars, int len) {
   uint32_t hash = hash_fnv1a(chars, len);
   ObjString *string = strings_find(chars, len, hash);

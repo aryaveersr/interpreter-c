@@ -21,6 +21,4 @@ void *mem_realloc(void *ptr, size_t old_size, size_t new_size);
 void collect_garbage(void);
 void mark_object(Obj *object);
 
-void object_free(Obj *object);
-
 #endif

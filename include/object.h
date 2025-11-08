@@ -103,6 +103,8 @@ typedef struct {
   ObjClosure *method;
 } ObjBoundMethod;
 
+void object_free(Obj *object);
+
 ObjString *string_copy(const char *chars, int len);
 ObjString *string_new(const char *chars, int len);
 ObjFunction *function_new(void);
@@ -113,7 +115,9 @@ ObjClass *class_new(ObjString *name);
 ObjInstance *instance_new(ObjClass *class);
 ObjBoundMethod *boundmethod_new(Value receiver, ObjClosure *method);
 
-static inline bool obj_is_kind(Value value, ObjKind kind) {
+__attribute__((unused)) //
+static inline bool
+obj_is_kind(Value value, ObjKind kind) {
   return IS_OBJ(value) && (AS_OBJ(value)->kind == kind);
 }
 

@@ -10,17 +10,16 @@ void chunk_init(Chunk *chunk) {
   chunk->capacity = 0;
   chunk->code = NULL;
 
-  valuelist_init(&chunk->consts);
-
   chunk->lines_len = 0;
   chunk->lines_capacity = 0;
   chunk->lines = NULL;
+
+  valuelist_init(&chunk->consts);
 }
 
 void chunk_free(Chunk *chunk) {
   MEM_FREE_ARRAY(uint8_t, chunk->code, chunk->len);
   valuelist_free(&chunk->consts);
-
   chunk_init(chunk);
 }
 
@@ -59,6 +58,7 @@ int chunk_push_const(Chunk *chunk, Value value) {
   push(value);
   valuelist_write(&chunk->consts, value);
   pop();
+
   return chunk->consts.len - 1;
 }
 

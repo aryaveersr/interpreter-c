@@ -1,7 +1,6 @@
 #include "compiler.h"
 #include "chunk.h"
 #include "lexer.h"
-#include "mem.h"
 #include "object.h"
 #include "value.h"
 #include <stdbool.h>
@@ -9,32 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct {
-  Token name;
-  int depth;
-  bool is_captured;
-} Local;
-
-typedef enum {
-  TARGET_SCRIPT,
-  TARGET_FUNCTION,
-  TARGET_METHOD,
-  TARGET_CONSTRUCTOR,
-} TargetKind;
-
-typedef struct Compiler {
-  ObjFunction *function;
-  TargetKind kind;
-
-  Local locals[UINT8_MAX + 1];
-  int len;
-  int depth;
-
-  Upvalue upvalues[UINT8_MAX + 1];
-
-  struct Compiler *parent;
-} Compiler;
 
 typedef struct {
   bool had_error;
@@ -47,8 +20,8 @@ typedef struct ClassCompiler {
   struct ClassCompiler *parent;
 } ClassCompiler;
 
-static Parser parser;
 static Compiler *current;
+static Parser parser;
 static ClassCompiler *current_class = NULL;
 
 static void report_error_at(Token *token, const char *message) {
@@ -124,7 +97,41 @@ static bool match(TokenKind kind) {
   return true;
 }
 
-static Chunk *current_chunk(void) {
+static inline bool tokens_equal(Token lhs, Token rhs) {
+  return (lhs.len == rhs.len) && (memcmp(lhs.start, rhs.start, lhs.len) == 0);
+}
+
+static inline Token synthetic_token(const char *text) {
+  return (Token){.start = text, .len = (int)strlen(text)};
+}
+
+static void recover(void) {
+  parser.panic = false;
+
+  while (!match(TOKEN_EOF)) {
+    switch (peek().kind) {
+    case TOKEN_CLASS:
+    case TOKEN_FUN:
+    case TOKEN_LET:
+    case TOKEN_FOR:
+    case TOKEN_IF:
+    case TOKEN_WHILE:
+    case TOKEN_PRINT:
+    case TOKEN_RETURN:
+      return;
+
+    case TOKEN_SEMICOLON:
+      advance();
+      return;
+
+    default:
+      advance();
+      continue;
+    }
+  }
+}
+
+static inline Chunk *current_chunk(void) {
   return &current->function->chunk;
 }
 
@@ -137,11 +144,6 @@ static void emit_const(Value value) {
 
   emit_byte(OP_LOAD);
   emit_byte((uint8_t)idx);
-}
-
-static uint8_t emit_identifier(Token *token) {
-  ObjString *name = string_copy(token->start, token->len);
-  return (uint8_t)chunk_push_const(current_chunk(), OBJ_VAL(name));
 }
 
 static int emit_jump(OpCode instruction) {
@@ -178,15 +180,6 @@ static void emit_jump_back(int start) {
 // Forward declarations.
 static void expression(void);
 static void statement(void);
-static void declaration(void);
-static void declaration_variable(void);
-static void compiler_init(Compiler *compiler, TargetKind kind);
-static ObjFunction *compiler_finish(void);
-
-static inline bool tokens_equal(Token *lhs, Token *rhs) {
-  return (lhs->len == rhs->len) &&
-         (memcmp(lhs->start, rhs->start, lhs->len) == 0);
-}
 
 static void scope_begin(void) {
   current->depth += 1;
@@ -210,7 +203,7 @@ static void scope_end(void) {
   }
 }
 
-static void add_local(Token name) {
+static void local_add(Token name) {
   if (current->len > UINT8_MAX) {
     report_error("Too many local variables in the function.");
     return;
@@ -223,11 +216,11 @@ static void add_local(Token name) {
   local->is_captured = false;
 }
 
-static int resolve_local(Compiler *compiler, Token *name) {
+static int local_resolve(Compiler *compiler, Token *name) {
   for (int i = compiler->len - 1; i >= 0; i--) {
     Local *local = &compiler->locals[i];
 
-    if (!tokens_equal(&local->name, name)) {
+    if (!tokens_equal(local->name, *name)) {
       continue;
     }
 
@@ -241,7 +234,7 @@ static int resolve_local(Compiler *compiler, Token *name) {
   return -1;
 }
 
-static int add_upvalue(Compiler *compiler, uint8_t idx, bool is_local) {
+static int upvalue_add(Compiler *compiler, uint8_t idx, bool is_local) {
   int upvalue_len = compiler->function->upvalue_len;
 
   for (int i = 0; i < upvalue_len; i++) {
@@ -263,57 +256,28 @@ static int add_upvalue(Compiler *compiler, uint8_t idx, bool is_local) {
   return compiler->function->upvalue_len++;
 }
 
-static int resolve_upvalue(Compiler *compiler, Token *name) {
+static int upvalue_resolve(Compiler *compiler, Token *name) {
   if (compiler->parent != NULL) {
-    int local = resolve_local(compiler->parent, name);
+    int local = local_resolve(compiler->parent, name);
 
     if (local != -1) {
       compiler->parent->locals[local].is_captured = true;
-      return add_upvalue(compiler, (uint8_t)local, true);
+      return upvalue_add(compiler, (uint8_t)local, true);
     }
 
-    int upvalue = resolve_upvalue(compiler->parent, name);
+    int upvalue = upvalue_resolve(compiler->parent, name);
 
     if (upvalue != -1) {
-      return add_upvalue(compiler, (uint8_t)upvalue, false);
+      return upvalue_add(compiler, (uint8_t)upvalue, false);
     }
   }
 
   return -1;
 }
 
-static Token synthetic_token(const char *content) {
-  Token token;
-  token.start = content;
-  token.len = (int)strlen(content);
-  return token;
-}
-
-static void expression_variable(Token *name, bool can_assign) {
-  int idx = resolve_local(current, name);
-  uint8_t set_op = OP_SET_LOCAL;
-  uint8_t get_op = OP_GET_LOCAL;
-
-  if (idx == -1) {
-    idx = resolve_upvalue(current, name);
-    set_op = OP_SET_UPVALUE;
-    get_op = OP_GET_UPVALUE;
-  }
-
-  if (idx == -1) {
-    idx = emit_identifier(name);
-    set_op = OP_SET_GLOBAL;
-    get_op = OP_GET_GLOBAL;
-  }
-
-  if (can_assign && match(TOKEN_EQUAL)) {
-    expression();
-    emit_byte(set_op);
-    emit_byte((uint8_t)idx);
-  } else {
-    emit_byte(get_op);
-    emit_byte((uint8_t)idx);
-  }
+static uint8_t identifier(Token *token) {
+  ObjString *name = string_copy(token->start, token->len);
+  return (uint8_t)chunk_push_const(current_chunk(), OBJ_VAL(name));
 }
 
 static uint8_t argument_list(void) {
@@ -333,6 +297,107 @@ static uint8_t argument_list(void) {
   }
 
   return arg_len;
+}
+
+static void variable_declare(void) {
+  if (current->depth == 0) {
+    return;
+  }
+
+  for (int i = current->len - 1; i >= 0; i--) {
+    Local *local = &current->locals[i];
+
+    if (local->depth != -1 && local->depth < current->depth) {
+      break;
+    }
+
+    if (tokens_equal(parser.last, local->name)) {
+      report_error("A variable with this name already exists in this scope.");
+    }
+  }
+
+  local_add(parser.last);
+}
+
+static void variable_define(uint8_t global) {
+  if (current->depth > 0) {
+    current->locals[current->len - 1].depth = current->depth;
+    return;
+  }
+
+  emit_byte(OP_DEFINE_GLOBAL);
+  emit_byte(global);
+}
+
+static uint8_t variable(const char *message) {
+  expect(TOKEN_IDENTIFIER, message);
+  variable_declare();
+
+  if (current->depth > 0) {
+    return 0;
+  }
+
+  return identifier(&parser.last);
+}
+
+static void expression_variable(Token *name, bool can_assign) {
+  int idx = local_resolve(current, name);
+  uint8_t set_op = OP_SET_LOCAL;
+  uint8_t get_op = OP_GET_LOCAL;
+
+  if (idx == -1) {
+    idx = upvalue_resolve(current, name);
+    set_op = OP_SET_UPVALUE;
+    get_op = OP_GET_UPVALUE;
+  }
+
+  if (idx == -1) {
+    idx = identifier(name);
+    set_op = OP_SET_GLOBAL;
+    get_op = OP_GET_GLOBAL;
+  }
+
+  if (can_assign && match(TOKEN_EQUAL)) {
+    expression();
+    emit_byte(set_op);
+    emit_byte((uint8_t)idx);
+  } else {
+    emit_byte(get_op);
+    emit_byte((uint8_t)idx);
+  }
+}
+
+static void expression_super(void) {
+  if (current_class == NULL) {
+    report_error("Can't use super outside a class.");
+  } else if (!current_class->has_superclass) {
+    report_error("Can't use super in a class with no superclass.");
+  }
+
+  expect(TOKEN_DOT, "Expected '.' after 'super'.");
+  expect(TOKEN_IDENTIFIER, "Expected superclass method name.");
+
+  uint8_t name = identifier(&parser.last);
+
+  Token self = synthetic_token("self");
+  Token super = synthetic_token("super");
+
+  expression_variable(&self, false);
+
+  if (match(TOKEN_LEFT_PAREN)) {
+    uint8_t arg_len = argument_list();
+
+    expression_variable(&super, false);
+
+    emit_byte(OP_SUPER_INVOKE);
+    emit_byte(name);
+    emit_byte(arg_len);
+  } else {
+    expression_variable(&super, false);
+
+    emit_byte(OP_GET_SUPER);
+    emit_byte(name);
+  }
 }
 
 static void expression_primary(bool can_assign) {
@@ -377,38 +442,9 @@ static void expression_primary(bool can_assign) {
     expression_variable(&next, false);
     break;
 
-  case TOKEN_SUPER: {
-    if (current_class == NULL) {
-      report_error("Can't use super outside a class.");
-    } else if (!current_class->has_superclass) {
-      report_error("Can't use super in a class with no superclass.");
-    }
-
-    expect(TOKEN_DOT, "Expected '.' after 'super'.");
-    expect(TOKEN_IDENTIFIER, "Expected superclass method name.");
-    uint8_t name = emit_identifier(&next);
-
-    Token self = synthetic_token("self");
-    Token super = synthetic_token("super");
-
-    expression_variable(&self, false);
-
-    if (match(TOKEN_LEFT_PAREN)) {
-      uint8_t arg_len = argument_list();
-
-      expression_variable(&super, false);
-
-      emit_byte(OP_SUPER_INVOKE);
-      emit_byte(name);
-      emit_byte(arg_len);
-    } else {
-      expression_variable(&super, false);
-      emit_byte(OP_GET_SUPER);
-      emit_byte(name);
-    }
-
+  case TOKEN_SUPER:
+    expression_super();
     break;
-  }
 
   default:
     report_error("Expected expression.");
@@ -419,12 +455,13 @@ static void expression_primary(bool can_assign) {
 static void expression_property(bool can_assign) {
   expression_primary(can_assign);
 
-  if (match(TOKEN_DOT)) {
+  while (match(TOKEN_DOT)) {
     expect(TOKEN_IDENTIFIER, "Expected property name after '.'.");
-    uint8_t name = emit_identifier(&parser.last);
+    uint8_t name = identifier(&parser.last);
 
     if (can_assign && match(TOKEN_EQUAL)) {
       expression();
+
       emit_byte(OP_SET_PROPERTY);
       emit_byte(name);
     } else if (match(TOKEN_LEFT_PAREN)) {
@@ -544,11 +581,11 @@ static void expression_comparison(bool can_assign) {
 static void expression_and(bool can_assign) {
   expression_comparison(can_assign);
 
-  if (match(TOKEN_AND)) {
+  while (match(TOKEN_AND)) {
     int end_offset = emit_jump(OP_JUMP_IF_FALSE);
 
     emit_byte(OP_POP);
-    expression_and(false);
+    expression_comparison(false);
 
     patch_jump(end_offset);
   }
@@ -557,11 +594,11 @@ static void expression_and(bool can_assign) {
 static void expression_or(bool can_assign) {
   expression_and(can_assign);
 
-  if (match(TOKEN_OR)) {
+  while (match(TOKEN_OR)) {
     int end_offset = emit_jump(OP_JUMP_IF_TRUE);
 
     emit_byte(OP_POP);
-    expression_or(false);
+    expression_and(false);
 
     patch_jump(end_offset);
   }
@@ -569,6 +606,207 @@ static void expression_or(bool can_assign) {
 
 static void expression(void) {
   expression_or(true);
+}
+
+static void compiler_init(Compiler *compiler, TargetKind kind) {
+  compiler->function = NULL;
+  compiler->kind = kind;
+  compiler->len = 0;
+  compiler->depth = 0;
+  compiler->parent = current;
+
+  compiler->function = function_new();
+  current = compiler;
+
+  if (kind != TARGET_SCRIPT) {
+    current->function->name = string_copy(parser.last.start, parser.last.len);
+  }
+
+  Local *local = &compiler->locals[compiler->len++];
+  bool is_method = kind == TARGET_METHOD || kind == TARGET_CONSTRUCTOR;
+
+  local->depth = 0;
+  local->is_captured = false;
+  local->name.start = is_method ? "self" : "";
+  local->name.len = is_method ? 4 : 0;
+}
+
+static ObjFunction *compiler_finish(void) {
+  ObjFunction *function = current->function;
+
+  if (current->kind == TARGET_CONSTRUCTOR) {
+    emit_byte(OP_GET_LOCAL);
+    emit_byte(0);
+  } else {
+    emit_byte(OP_NIL);
+  }
+
+  emit_byte(OP_RETURN);
+
+#ifdef DUMP_CODE
+  chunk_print(&function->chunk,
+              function->name == NULL ? "<script>" : function->name->chars);
+#endif
+
+  current = current->parent;
+  return function;
+}
+
+static void function(TargetKind kind) {
+  Compiler compiler;
+  compiler_init(&compiler, kind);
+  scope_begin();
+
+  expect(TOKEN_LEFT_PAREN, "Expected (.");
+
+  if (!match(TOKEN_RIGHT_PAREN)) {
+    do {
+      current->function->arity++;
+
+      if (current->function->arity > 255) {
+        report_error("Can't have more than 255 parameters.");
+      }
+
+      uint8_t constant = variable("Expected parameter name.");
+      variable_define(constant);
+    } while (match(TOKEN_COMMA));
+
+    expect(TOKEN_RIGHT_PAREN, "Expected ) after parameters.");
+  }
+
+  Token next = peek();
+
+  if (peek().kind != TOKEN_LEFT_BRACE) {
+    report_error_at(&next, "Expected { before function body.");
+  }
+
+  statement();
+
+  ObjFunction *function = compiler_finish();
+  int idx = chunk_push_const(current_chunk(), OBJ_VAL(function));
+
+  emit_byte(OP_CLOSURE);
+  emit_byte((uint8_t)idx);
+
+  for (int i = 0; i < function->upvalue_len; i++) {
+    emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
+    emit_byte(compiler.upvalues[i].idx);
+  }
+}
+
+static void method(void) {
+  expect(TOKEN_IDENTIFIER, "Expected method name.");
+
+  uint8_t name_const = identifier(&parser.last);
+
+  bool is_constructor = tokens_equal(parser.last, synthetic_token("init"));
+  function(is_constructor ? TARGET_CONSTRUCTOR : TARGET_METHOD);
+
+  emit_byte(OP_METHOD);
+  emit_byte(name_const);
+}
+
+static void declaration_variable(void) {
+  uint8_t global = variable("Expected variable name.");
+
+  if (match(TOKEN_EQUAL)) {
+    expression();
+  } else {
+    emit_byte(OP_NIL);
+  }
+
+  expect(TOKEN_SEMICOLON, "Expected ; after variable declaration.");
+  variable_define(global);
+}
+
+static void declaration_function(void) {
+  advance();
+
+  uint8_t global = variable("Expected function name.");
+  current->locals[current->len - 1].depth = current->depth;
+
+  function(TARGET_FUNCTION);
+  variable_define(global);
+}
+
+static void declaration_class(void) {
+  advance();
+  expect(TOKEN_IDENTIFIER, "Expected class name.");
+
+  Token class_name = parser.last;
+  uint8_t name = identifier(&class_name);
+
+  variable_declare();
+
+  emit_byte(OP_CLASS);
+  emit_byte(name);
+
+  variable_define(name);
+
+  ClassCompiler class_compiler;
+  class_compiler.has_superclass = false;
+  class_compiler.parent = current_class;
+  current_class = &class_compiler;
+
+  if (match(TOKEN_LESSER)) {
+    expect(TOKEN_IDENTIFIER, "Expected superclass name.");
+
+    if (tokens_equal(parser.last, class_name)) {
+      report_error("A class cannot inherit from itself.");
+    }
+
+    expression_variable(&parser.last, false);
+
+    scope_begin();
+    local_add(synthetic_token("super"));
+    variable_define(0);
+
+    expression_variable(&class_name, false);
+    emit_byte(OP_INHERIT);
+    class_compiler.has_superclass = true;
+  }
+
+  expression_variable(&class_name, false);
+
+  expect(TOKEN_LEFT_BRACE, "Expected { after class name.");
+
+  while (peek().kind != TOKEN_RIGHT_BRACE) {
+    method();
+  }
+
+  expect(TOKEN_RIGHT_BRACE, "Expected } after class body.");
+  emit_byte(OP_POP);
+
+  if (current_class->has_superclass) {
+    scope_end();
+  }
+
+  current_class = current_class->parent;
+}
+
+static void declaration(void) {
+  switch (peek().kind) {
+  case TOKEN_CLASS:
+    declaration_class();
+    break;
+
+  case TOKEN_FUN:
+    declaration_function();
+    break;
+
+  case TOKEN_LET:
+    advance();
+    declaration_variable();
+    break;
+
+  default:
+    statement();
+    break;
+  }
+
+  if (parser.panic) {
+    recover();
+  }
 }
 
 static void statement_print(void) {
@@ -689,22 +927,21 @@ static void statement_for(void) {
 
 static void statement_return(void) {
   advance();
+
   if (current->kind == TARGET_SCRIPT) {
     report_error("Can't return from top-level code.");
   }
 
   if (match(TOKEN_SEMICOLON)) {
     emit_byte(OP_NIL);
-    emit_byte(OP_RETURN);
+  } else if (current->kind == TARGET_CONSTRUCTOR) {
+    report_error("Can't return a value from the constructor.");
   } else {
-    if (current->kind == TARGET_CONSTRUCTOR) {
-      report_error("Can't return a value from the constructor.");
-    }
-
     expression();
-    emit_byte(OP_RETURN);
     expect(TOKEN_SEMICOLON, "Expected ; after return value.");
   }
+
+  emit_byte(OP_RETURN);
 }
 
 static void statement(void) {
@@ -739,270 +976,6 @@ static void statement(void) {
   }
 }
 
-static void synchronize(void) {
-  parser.panic = false;
-
-  while (!match(TOKEN_EOF)) {
-    switch (peek().kind) {
-    case TOKEN_CLASS:
-    case TOKEN_FUN:
-    case TOKEN_LET:
-    case TOKEN_FOR:
-    case TOKEN_IF:
-    case TOKEN_WHILE:
-    case TOKEN_PRINT:
-    case TOKEN_RETURN:
-      return;
-
-    case TOKEN_SEMICOLON:
-      advance();
-      return;
-
-    default:
-      advance();
-      continue;
-    }
-  }
-}
-
-static void declare_variable(void) {
-  if (current->depth == 0) {
-    return;
-  }
-
-  for (int i = current->len - 1; i >= 0; i--) {
-    Local *local = &current->locals[i];
-
-    if (local->depth != -1 && local->depth < current->depth) {
-      break;
-    }
-
-    if (tokens_equal(&parser.last, &local->name)) {
-      report_error("A variable with this name already exists in this scope.");
-    }
-  }
-
-  add_local(parser.last);
-}
-
-static uint8_t parse_identifier(const char *message) {
-  expect(TOKEN_IDENTIFIER, message);
-  declare_variable();
-
-  if (current->depth > 0) {
-    return 0;
-  }
-
-  return emit_identifier(&parser.last);
-}
-
-static void define_variable(uint8_t global) {
-  if (current->depth > 0) {
-    current->locals[current->len - 1].depth = current->depth;
-    return;
-  }
-
-  emit_byte(OP_DEFINE_GLOBAL);
-  emit_byte(global);
-}
-
-static void declaration_variable(void) {
-  uint8_t global = parse_identifier("Expected variable name.");
-
-  if (match(TOKEN_EQUAL)) {
-    expression();
-  } else {
-    emit_byte(OP_NIL);
-  }
-
-  expect(TOKEN_SEMICOLON, "Expected ; after variable declaration.");
-  define_variable(global);
-}
-
-static void function(TargetKind kind) {
-  Compiler compiler;
-  compiler_init(&compiler, kind);
-  scope_begin();
-
-  expect(TOKEN_LEFT_PAREN, "Expected (.");
-
-  if (!match(TOKEN_RIGHT_PAREN)) {
-    do {
-      current->function->arity++;
-      if (current->function->arity > 255) {
-        report_error("Can't have more than 255 parameters.");
-      }
-
-      uint8_t constant = parse_identifier("Expected parameter name.");
-      define_variable(constant);
-    } while (match(TOKEN_COMMA));
-
-    expect(TOKEN_RIGHT_PAREN, "Expected ) after parameters.");
-  }
-
-  Token next = peek();
-
-  if (peek().kind != TOKEN_LEFT_BRACE) {
-    report_error_at(&next, "Expected { before function body.");
-  }
-
-  statement_block();
-
-  ObjFunction *function = compiler_finish();
-  int idx = chunk_push_const(current_chunk(), OBJ_VAL(function));
-
-  emit_byte(OP_CLOSURE);
-  emit_byte((uint8_t)idx);
-
-  for (int i = 0; i < function->upvalue_len; i++) {
-    emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
-    emit_byte(compiler.upvalues[i].idx);
-  }
-}
-
-static void declaration_function(void) {
-  uint8_t global = parse_identifier("Expected function name.");
-  current->locals[current->len - 1].depth = current->depth;
-  function(TARGET_FUNCTION);
-  define_variable(global);
-}
-
-static void method(void) {
-  expect(TOKEN_IDENTIFIER, "Expected method name.");
-
-  uint8_t constant = emit_identifier(&parser.last);
-
-  TargetKind kind = TARGET_METHOD;
-
-  if (parser.last.len == 4 && memcmp(parser.last.start, "init", 4) == 0) {
-    kind = TARGET_CONSTRUCTOR;
-  }
-
-  function(kind);
-
-  emit_byte(OP_METHOD);
-  emit_byte(constant);
-}
-
-static void declaration_class(void) {
-  expect(TOKEN_IDENTIFIER, "Expected class name.");
-
-  Token class_name = parser.last;
-  uint8_t name = emit_identifier(&parser.last);
-
-  declare_variable();
-
-  emit_byte(OP_CLASS);
-  emit_byte(name);
-
-  define_variable(name);
-
-  ClassCompiler class_compiler;
-  class_compiler.has_superclass = false;
-  class_compiler.parent = current_class;
-  current_class = &class_compiler;
-
-  if (match(TOKEN_LESSER)) {
-    expect(TOKEN_IDENTIFIER, "Expected superclass name.");
-
-    if (tokens_equal(&parser.last, &class_name)) {
-      report_error("A class cannot inherit from itself.");
-    }
-
-    expression_variable(&parser.last, false);
-
-    scope_begin();
-    add_local(synthetic_token("super"));
-    define_variable(0);
-
-    expression_variable(&class_name, false);
-    emit_byte(OP_INHERIT);
-    class_compiler.has_superclass = true;
-  }
-
-  expression_variable(&class_name, false);
-
-  expect(TOKEN_LEFT_BRACE, "Expected { after class name.");
-
-  while (match(TOKEN_FUN)) {
-    method();
-  }
-
-  expect(TOKEN_RIGHT_BRACE, "Expected } after class body.");
-  emit_byte(OP_POP);
-
-  if (current_class->has_superclass) {
-    scope_end();
-  }
-
-  current_class = current_class->parent;
-}
-
-static void declaration(void) {
-  if (match(TOKEN_CLASS)) {
-    declaration_class();
-  } else if (match(TOKEN_LET)) {
-    declaration_variable();
-  } else if (match(TOKEN_FUN)) {
-    declaration_function();
-  } else {
-    statement();
-  }
-
-  if (parser.panic) {
-    synchronize();
-  }
-}
-
-static void compiler_init(Compiler *compiler, TargetKind kind) {
-  compiler->function = NULL;
-  compiler->kind = kind;
-  compiler->len = 0;
-  compiler->depth = 0;
-  compiler->parent = current;
-
-  compiler->function = function_new();
-  current = compiler;
-
-  if (kind != TARGET_SCRIPT) {
-    current->function->name = string_copy(parser.last.start, parser.last.len);
-  }
-
-  Local *local = &compiler->locals[compiler->len++];
-
-  local->depth = 0;
-  local->is_captured = false;
-
-  if (kind == TARGET_METHOD || kind == TARGET_CONSTRUCTOR) {
-    local->name.start = "self";
-    local->name.len = 4;
-  } else {
-    local->name.start = "";
-    local->name.len = 0;
-  }
-}
-
-static ObjFunction *compiler_finish(void) {
-  ObjFunction *function = current->function;
-
-  if (current->kind == TARGET_CONSTRUCTOR) {
-    emit_byte(OP_GET_LOCAL);
-    emit_byte(0);
-  } else {
-    emit_byte(OP_NIL);
-  }
-
-  emit_byte(OP_RETURN);
-
-#ifdef DUMP_CODE
-  chunk_print(&function->chunk,
-              function->name == NULL ? "<script>" : function->name->chars);
-#endif
-
-  current = current->parent;
-  return function;
-}
-
 ObjFunction *compiler_compile(void) {
   parser.had_error = false;
   parser.panic = false;
@@ -1018,11 +991,6 @@ ObjFunction *compiler_compile(void) {
   return parser.had_error ? NULL : function;
 }
 
-void mark_compiler_roots(void) {
-  Compiler *compiler = current;
-
-  while (compiler != NULL) {
-    mark_object((Obj *)compiler->function);
-    compiler = compiler->parent;
-  }
+Compiler *compiler_current(void) {
+  return current;
 }
