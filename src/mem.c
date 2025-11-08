@@ -73,6 +73,7 @@ void object_free(Obj *object) {
     break;
 
   case OBJ_CLASS:
+    table_free(&((ObjClass *)object)->methods);
     MEM_FREE(ObjClass, object);
     break;
 
@@ -82,6 +83,10 @@ void object_free(Obj *object) {
     MEM_FREE(ObjInstance, object);
     break;
   }
+
+  case OBJ_BOUND_METHOD:
+    MEM_FREE(ObjBoundMethod, object);
+    break;
   }
 }
 
@@ -147,6 +152,7 @@ static void mark_roots(void) {
 
   mark_table(&vm.globals);
   mark_compiler_roots();
+  mark_object((Obj *)vm.init_string);
 }
 
 static void mark_valuelist(ValueList *list) {
@@ -192,6 +198,7 @@ static void blacken_object(Obj *object) {
   case OBJ_CLASS: {
     ObjClass *class = (ObjClass *)object;
     mark_object((Obj *)class->name);
+    mark_table(&class->methods);
     break;
   }
 
@@ -199,6 +206,13 @@ static void blacken_object(Obj *object) {
     ObjInstance *instance = (ObjInstance *)object;
     mark_object((Obj *)instance->class);
     mark_table(&instance->fields);
+    break;
+  }
+
+  case OBJ_BOUND_METHOD: {
+    ObjBoundMethod *bound = (ObjBoundMethod *)object;
+    mark_value(bound->receiver);
+    mark_object((Obj *)bound->method);
     break;
   }
   }

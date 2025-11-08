@@ -30,6 +30,17 @@ static int instruction_jump(const char *name, int sign, Chunk *chunk,
   return offset + 3;
 }
 
+static int instruction_invoke(const char *name, Chunk *chunk, int offset) {
+  uint8_t constant = chunk->code[offset + 1];
+  uint8_t arg_len = chunk->code[offset + 2];
+
+  printf("%-16s (%d args) %4d '", name, arg_len, constant);
+  value_print(chunk->consts.values[constant]);
+  printf("'\n");
+
+  return offset + 3;
+}
+
 #define SIMPLE_INSTR(name)                                                     \
   case name:                                                                   \
     printf(#name "\n");                                                        \
@@ -46,6 +57,10 @@ static int instruction_jump(const char *name, int sign, Chunk *chunk,
 #define JUMP_INSTR(name, sign)                                                 \
   case name:                                                                   \
     return instruction_jump(#name, sign, chunk, offset)
+
+#define INVOKE_INSTR(name)                                                     \
+  case name:                                                                   \
+    return instruction_invoke(#name, chunk, offset)
 
 int chunk_print_instr(Chunk *chunk, int offset) {
   printf("%04d %4d ", offset, chunk_get_line(chunk, offset));
@@ -76,6 +91,8 @@ int chunk_print_instr(Chunk *chunk, int offset) {
 
     SIMPLE_INSTR(OP_CLOSE_UPVALUE);
 
+    SIMPLE_INSTR(OP_INHERIT);
+
     CONST_INSTR(OP_LOAD);
     CONST_INSTR(OP_DEFINE_GLOBAL);
     CONST_INSTR(OP_GET_GLOBAL);
@@ -84,6 +101,9 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     CONST_INSTR(OP_CLASS);
     CONST_INSTR(OP_GET_PROPERTY);
     CONST_INSTR(OP_SET_PROPERTY);
+    CONST_INSTR(OP_METHOD);
+
+    CONST_INSTR(OP_GET_SUPER);
 
     BYTE_INSTR(OP_GET_LOCAL);
     BYTE_INSTR(OP_SET_LOCAL);
@@ -96,6 +116,9 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     JUMP_INSTR(OP_JUMP_BACK, -1);
     JUMP_INSTR(OP_JUMP_IF_TRUE, 1);
     JUMP_INSTR(OP_JUMP_IF_FALSE, 1);
+
+    INVOKE_INSTR(OP_INVOKE);
+    INVOKE_INSTR(OP_SUPER_INVOKE);
 
   case OP_CLOSURE: {
     offset++;

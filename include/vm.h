@@ -34,6 +34,7 @@ typedef struct {
   Obj *objects;
   ObjUpvalue *open_upvalues;
   Table strings;
+  ObjString *init_string;
   Table globals;
 
   int gray_len;

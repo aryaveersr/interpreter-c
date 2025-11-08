@@ -17,8 +17,10 @@ typedef struct {
 } Local;
 
 typedef enum {
-  TARGET_FUNCTION,
   TARGET_SCRIPT,
+  TARGET_FUNCTION,
+  TARGET_METHOD,
+  TARGET_CONSTRUCTOR,
 } TargetKind;
 
 typedef struct Compiler {
@@ -40,8 +42,14 @@ typedef struct {
   Token last;
 } Parser;
 
+typedef struct ClassCompiler {
+  bool has_superclass;
+  struct ClassCompiler *parent;
+} ClassCompiler;
+
 static Parser parser;
 static Compiler *current;
+static ClassCompiler *current_class = NULL;
 
 static void report_error_at(Token *token, const char *message) {
   if (parser.panic) {
@@ -274,6 +282,13 @@ static int resolve_upvalue(Compiler *compiler, Token *name) {
   return -1;
 }
 
+static Token synthetic_token(const char *content) {
+  Token token;
+  token.start = content;
+  token.len = (int)strlen(content);
+  return token;
+}
+
 static void expression_variable(Token *name, bool can_assign) {
   int idx = resolve_local(current, name);
   uint8_t set_op = OP_SET_LOCAL;
@@ -299,6 +314,25 @@ static void expression_variable(Token *name, bool can_assign) {
     emit_byte(get_op);
     emit_byte((uint8_t)idx);
   }
+}
+
+static uint8_t argument_list(void) {
+  uint8_t arg_len = 0;
+
+  if (!match(TOKEN_RIGHT_PAREN)) {
+    do {
+      if (arg_len == UINT8_MAX) {
+        report_error("Can't have more than 255 arguments.");
+      }
+
+      expression();
+      arg_len++;
+    } while (match(TOKEN_COMMA));
+
+    expect(TOKEN_RIGHT_PAREN, "Expected ) after arguments.");
+  }
+
+  return arg_len;
 }
 
 static void expression_primary(bool can_assign) {
@@ -334,6 +368,48 @@ static void expression_primary(bool can_assign) {
     expression_variable(&next, can_assign);
     break;
 
+  case TOKEN_SELF:
+    if (current_class == NULL) {
+      report_error("Can't use 'self' outside of a class.");
+      return;
+    }
+
+    expression_variable(&next, false);
+    break;
+
+  case TOKEN_SUPER: {
+    if (current_class == NULL) {
+      report_error("Can't use super outside a class.");
+    } else if (!current_class->has_superclass) {
+      report_error("Can't use super in a class with no superclass.");
+    }
+
+    expect(TOKEN_DOT, "Expected '.' after 'super'.");
+    expect(TOKEN_IDENTIFIER, "Expected superclass method name.");
+    uint8_t name = emit_identifier(&next);
+
+    Token self = synthetic_token("self");
+    Token super = synthetic_token("super");
+
+    expression_variable(&self, false);
+
+    if (match(TOKEN_LEFT_PAREN)) {
+      uint8_t arg_len = argument_list();
+
+      expression_variable(&super, false);
+
+      emit_byte(OP_SUPER_INVOKE);
+      emit_byte(name);
+      emit_byte(arg_len);
+    } else {
+      expression_variable(&super, false);
+      emit_byte(OP_GET_SUPER);
+      emit_byte(name);
+    }
+
+    break;
+  }
+
   default:
     report_error("Expected expression.");
     break;
@@ -351,6 +427,12 @@ static void expression_property(bool can_assign) {
       expression();
       emit_byte(OP_SET_PROPERTY);
       emit_byte(name);
+    } else if (match(TOKEN_LEFT_PAREN)) {
+      uint8_t arg_len = argument_list();
+
+      emit_byte(OP_INVOKE);
+      emit_byte(name);
+      emit_byte(arg_len);
     } else {
       emit_byte(OP_GET_PROPERTY);
       emit_byte(name);
@@ -362,20 +444,7 @@ static void expression_call(bool can_assign) {
   expression_property(can_assign);
 
   if (match(TOKEN_LEFT_PAREN)) {
-    uint8_t arg_len = 0;
-
-    if (!match(TOKEN_RIGHT_PAREN)) {
-      do {
-        if (arg_len == UINT8_MAX) {
-          report_error("Can't have more than 255 arguments.");
-        }
-
-        expression();
-        arg_len++;
-      } while (match(TOKEN_COMMA));
-
-      expect(TOKEN_RIGHT_PAREN, "Expected ) after arguments.");
-    }
+    uint8_t arg_len = argument_list();
 
     emit_byte(OP_CALL);
     emit_byte(arg_len);
@@ -628,6 +697,10 @@ static void statement_return(void) {
     emit_byte(OP_NIL);
     emit_byte(OP_RETURN);
   } else {
+    if (current->kind == TARGET_CONSTRUCTOR) {
+      report_error("Can't return a value from the constructor.");
+    }
+
     expression();
     emit_byte(OP_RETURN);
     expect(TOKEN_SEMICOLON, "Expected ; after return value.");
@@ -794,10 +867,29 @@ static void declaration_function(void) {
   define_variable(global);
 }
 
+static void method(void) {
+  expect(TOKEN_IDENTIFIER, "Expected method name.");
+
+  uint8_t constant = emit_identifier(&parser.last);
+
+  TargetKind kind = TARGET_METHOD;
+
+  if (parser.last.len == 4 && memcmp(parser.last.start, "init", 4) == 0) {
+    kind = TARGET_CONSTRUCTOR;
+  }
+
+  function(kind);
+
+  emit_byte(OP_METHOD);
+  emit_byte(constant);
+}
+
 static void declaration_class(void) {
   expect(TOKEN_IDENTIFIER, "Expected class name.");
 
+  Token class_name = parser.last;
   uint8_t name = emit_identifier(&parser.last);
+
   declare_variable();
 
   emit_byte(OP_CLASS);
@@ -805,8 +897,45 @@ static void declaration_class(void) {
 
   define_variable(name);
 
+  ClassCompiler class_compiler;
+  class_compiler.has_superclass = false;
+  class_compiler.parent = current_class;
+  current_class = &class_compiler;
+
+  if (match(TOKEN_LESSER)) {
+    expect(TOKEN_IDENTIFIER, "Expected superclass name.");
+
+    if (tokens_equal(&parser.last, &class_name)) {
+      report_error("A class cannot inherit from itself.");
+    }
+
+    expression_variable(&parser.last, false);
+
+    scope_begin();
+    add_local(synthetic_token("super"));
+    define_variable(0);
+
+    expression_variable(&class_name, false);
+    emit_byte(OP_INHERIT);
+    class_compiler.has_superclass = true;
+  }
+
+  expression_variable(&class_name, false);
+
   expect(TOKEN_LEFT_BRACE, "Expected { after class name.");
+
+  while (match(TOKEN_FUN)) {
+    method();
+  }
+
   expect(TOKEN_RIGHT_BRACE, "Expected } after class body.");
+  emit_byte(OP_POP);
+
+  if (current_class->has_superclass) {
+    scope_end();
+  }
+
+  current_class = current_class->parent;
 }
 
 static void declaration(void) {
@@ -842,15 +971,27 @@ static void compiler_init(Compiler *compiler, TargetKind kind) {
   Local *local = &compiler->locals[compiler->len++];
 
   local->depth = 0;
-  local->name.start = "";
-  local->name.len = 0;
   local->is_captured = false;
+
+  if (kind == TARGET_METHOD || kind == TARGET_CONSTRUCTOR) {
+    local->name.start = "self";
+    local->name.len = 4;
+  } else {
+    local->name.start = "";
+    local->name.len = 0;
+  }
 }
 
 static ObjFunction *compiler_finish(void) {
   ObjFunction *function = current->function;
 
-  emit_byte(OP_NIL);
+  if (current->kind == TARGET_CONSTRUCTOR) {
+    emit_byte(OP_GET_LOCAL);
+    emit_byte(0);
+  } else {
+    emit_byte(OP_NIL);
+  }
+
   emit_byte(OP_RETURN);
 
 #ifdef DUMP_CODE

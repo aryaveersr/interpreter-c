@@ -133,7 +133,10 @@ ObjUpvalue *upvalue_new(Value *slot) {
 
 ObjClass *class_new(ObjString *name) {
   ObjClass *class = ALLOC_OBJ(ObjClass, OBJ_CLASS);
+
   class->name = name;
+  table_init(&class->methods);
+
   return class;
 }
 
@@ -144,4 +147,13 @@ ObjInstance *instance_new(ObjClass *class) {
   table_init(&instance->fields);
 
   return instance;
+}
+
+ObjBoundMethod *boundmethod_new(Value receiver, ObjClosure *method) {
+  ObjBoundMethod *bound = ALLOC_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
+
+  bound->receiver = receiver;
+  bound->method = method;
+
+  return bound;
 }

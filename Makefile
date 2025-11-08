@@ -4,7 +4,7 @@ CC := clang
 CFLAGS := -std=c18 -I./include
 CFLAGS += -Wall -Wextra -Wpedantic -Wimplicit-fallthrough
 
-DEBUG_FLAGS := -g -Og
+DEBUG_FLAGS := -g -O0
 RELEASE_FLAGS := -O3
 ## Configuration END.
 

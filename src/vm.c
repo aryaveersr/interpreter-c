@@ -40,10 +40,17 @@ void vm_init(void) {
   table_init(&vm.globals);
   reset_stack();
 
+  vm.init_string = NULL;
+  vm.init_string = string_copy("init", 4);
+
   define_native("clock", native_clock);
 }
 
 void vm_free(void) {
+  table_free(&vm.globals);
+  table_free(&vm.strings);
+  vm.init_string = NULL;
+
   Obj *object = vm.objects;
 
   while (object != NULL) {
@@ -52,8 +59,6 @@ void vm_free(void) {
     object = next;
   }
 
-  table_free(&vm.strings);
-  table_free(&vm.globals);
   free(vm.gray_stack);
 }
 
@@ -140,7 +145,23 @@ static bool call_value(Value callee, int arg_len) {
     case OBJ_CLASS: {
       ObjClass *class = AS_CLASS(callee);
       vm.stack_top[-arg_len - 1] = OBJ_VAL(instance_new(class));
+
+      Value constructor;
+      if (table_get(&class->methods, vm.init_string, &constructor)) {
+        return call(AS_CLOSURE(constructor), arg_len);
+      } else if (arg_len != 0) {
+        runtime_error("Expected no arguments for constructor but got %d.",
+                      arg_len);
+        return false;
+      }
+
       return true;
+    }
+
+    case OBJ_BOUND_METHOD: {
+      ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+      vm.stack_top[-arg_len - 1] = bound->receiver;
+      return call(bound->method, arg_len);
     }
 
     default:
@@ -195,6 +216,59 @@ void define_native(const char *name, NativeFn function) {
   table_set(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
   pop();
   pop();
+}
+
+static void define_method(ObjString *name) {
+  Value method = peek(0);
+  ObjClass *class = AS_CLASS(peek(1));
+
+  table_set(&class->methods, name, method);
+  pop();
+}
+
+static bool bind_method(ObjClass *class, ObjString *name) {
+  Value method;
+
+  if (!table_get(&class->methods, name, &method)) {
+    runtime_error("Undefined property '%s'.", name->chars);
+    return false;
+  }
+
+  ObjBoundMethod *bound = boundmethod_new(peek(0), AS_CLOSURE(method));
+
+  pop();
+  push(OBJ_VAL(bound));
+  return true;
+}
+
+static bool invoke_from_class(ObjClass *class, ObjString *name, int arg_len) {
+  Value method;
+
+  if (!table_get(&class->methods, name, &method)) {
+    runtime_error("Undefined property '%s'.", name->chars);
+    return false;
+  }
+
+  return call(AS_CLOSURE(method), arg_len);
+}
+
+static bool invoke(ObjString *name, uint8_t arg_len) {
+  Value receiver = peek(arg_len);
+
+  if (!IS_INSTANCE(receiver)) {
+    runtime_error("Can't call property on object that's not an instance.");
+    return false;
+  }
+
+  ObjInstance *instance = AS_INSTANCE(receiver);
+
+  Value value;
+  if (table_get(&instance->fields, name, &value)) {
+    vm.stack_top[-arg_len - 1] = value;
+    return call_value(value, arg_len);
+  }
+
+  return invoke_from_class(instance->class, name, arg_len);
 }
 
 #define CHUNK() (&frame->closure->function->chunk)
@@ -459,13 +533,13 @@ static InterpretResult run(void) {
       ObjString *property = READ_STRING();
 
       Value value;
-      if (!table_get(&instance->fields, property, &value)) {
-        runtime_error("Undefined property '%s'.", property->chars);
+      if (table_get(&instance->fields, property, &value)) {
+        pop();
+        push(value);
+      } else if (!bind_method(instance->class, property)) {
         return INTERPRET_RUNTIME_ERROR;
       }
 
-      pop();
-      push(value);
       break;
     }
 
@@ -481,6 +555,59 @@ static InterpretResult run(void) {
       Value value = pop();
       pop();
       push(value);
+      break;
+    }
+
+    case OP_METHOD:
+      define_method(READ_STRING());
+      break;
+
+    case OP_INVOKE: {
+      ObjString *method = READ_STRING();
+      uint8_t arg_len = READ_BYTE();
+
+      if (!invoke(method, arg_len)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      frame = &vm.frames[vm.frames_len - 1];
+      break;
+    }
+
+    case OP_INHERIT: {
+      if (!IS_CLASS(peek(0))) {
+        runtime_error("Superclass must be a class.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      ObjClass *superclass = AS_CLASS(peek(0));
+      ObjClass *subclass = AS_CLASS(peek(1));
+      table_add_all(&superclass->methods, &subclass->methods);
+      pop();
+      break;
+    }
+
+    case OP_GET_SUPER: {
+      ObjString *name = READ_STRING();
+      ObjClass *superclass = AS_CLASS(pop());
+
+      if (!bind_method(superclass, name)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      break;
+    }
+
+    case OP_SUPER_INVOKE: {
+      ObjString *method = READ_STRING();
+      int arg_len = READ_BYTE();
+      ObjClass *superclass = AS_CLASS(pop());
+
+      if (!invoke_from_class(superclass, method, arg_len)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      frame = &vm.frames[vm.frames_len - 1];
       break;
     }
 

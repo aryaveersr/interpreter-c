@@ -39,6 +39,10 @@ static void object_print(Value value) {
   case OBJ_INSTANCE:
     printf("instance of %s", AS_INSTANCE(value)->class->name->chars);
     break;
+
+  case OBJ_BOUND_METHOD:
+    object_print(OBJ_VAL(AS_BOUND_METHOD(value)->method->function));
+    break;
   }
 }
 
