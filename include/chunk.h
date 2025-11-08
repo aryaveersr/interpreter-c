@@ -19,7 +19,10 @@ typedef enum {
   OP_NOT,
   OP_LESSER,
   OP_GREATER,
+  OP_LESSER_EQUAL,
+  OP_GREATER_EQUAL,
   OP_EQUAL,
+  OP_NOT_EQUAL,
 
   OP_NIL,
   OP_TRUE,

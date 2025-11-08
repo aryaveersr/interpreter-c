@@ -530,52 +530,29 @@ static void expression_term(bool can_assign) {
 
 static void expression_comparison(bool can_assign) {
   expression_term(can_assign);
+  OpCode op = 0;
 
-  while (true) {
-    switch (peek().kind) {
-    case TOKEN_LESSER:
-      advance();
-      expression_term(false);
-      emit_byte(OP_LESSER);
-      continue;
+#define SET_OP(token, opcode)                                                  \
+  case token:                                                                  \
+    op = opcode;                                                               \
+    break
 
-    case TOKEN_LESSER_EQUAL:
-      advance();
-      expression_term(false);
-      emit_byte(OP_GREATER);
-      emit_byte(OP_NOT);
-      continue;
+  switch (peek().kind) {
+    SET_OP(TOKEN_LESSER, OP_LESSER);
+    SET_OP(TOKEN_LESSER_EQUAL, OP_LESSER_EQUAL);
+    SET_OP(TOKEN_GREATER, OP_GREATER);
+    SET_OP(TOKEN_GREATER_EQUAL, OP_GREATER_EQUAL);
+    SET_OP(TOKEN_EQUAL_EQUAL, OP_EQUAL);
+    SET_OP(TOKEN_BANG_EQUAL, OP_NOT_EQUAL);
 
-    case TOKEN_GREATER:
-      advance();
-      expression_term(false);
-      emit_byte(OP_GREATER);
-      continue;
-
-    case TOKEN_GREATER_EQUAL:
-      advance();
-      expression_term(false);
-      emit_byte(OP_LESSER);
-      emit_byte(OP_NOT);
-      continue;
-
-    case TOKEN_EQUAL_EQUAL:
-      advance();
-      expression_term(false);
-      emit_byte(OP_EQUAL);
-      continue;
-
-    case TOKEN_BANG_EQUAL:
-      advance();
-      expression_term(false);
-      emit_byte(OP_EQUAL);
-      emit_byte(OP_NOT);
-      continue;
-
-    default:
-      return;
-    }
+  default:
+    return;
   }
+#undef SET_OP
+
+  advance();
+  expression_term(false);
+  emit_byte(op);
 }
 
 static void expression_and(bool can_assign) {

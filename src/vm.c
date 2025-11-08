@@ -320,6 +320,8 @@ static InterpretResult run(void) {
 
       BINARY_OP(BOOL_VAL, OP_LESSER, <);
       BINARY_OP(BOOL_VAL, OP_GREATER, >);
+      BINARY_OP(BOOL_VAL, OP_LESSER_EQUAL, <=);
+      BINARY_OP(BOOL_VAL, OP_GREATER_EQUAL, >=);
 
     case OP_RETURN: {
       Value result = pop();
@@ -383,6 +385,13 @@ static InterpretResult run(void) {
       Value b = pop();
       Value a = pop();
       push(BOOL_VAL(value_is_equal(a, b)));
+      break;
+    }
+
+    case OP_NOT_EQUAL: {
+      Value b = pop();
+      Value a = pop();
+      push(BOOL_VAL(!value_is_equal(a, b)));
       break;
     }
 
