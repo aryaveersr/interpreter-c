@@ -13,17 +13,8 @@ typedef struct {
 static Lexer lexer;
 
 #define IS_VALID_IN_IDENTIFIER(ch) (isalnum(ch) || (ch) == '_')
-
 #define BUFFER_IS_EMPTY() (lexer.buffer.len == -1)
 #define BUFFER_CLEAR() (lexer.buffer.len = -1)
-
-void lexer_init(const char *source) {
-  lexer.start = source;
-  lexer.next = source;
-  lexer.line = 1;
-
-  BUFFER_CLEAR();
-}
 
 static Token emit_token(TokenKind kind) {
   Token token;
@@ -163,6 +154,14 @@ static Token identifier(void) {
   }
 
   return emit_token(identifier_kind());
+}
+
+void lexer_init(const char *source) {
+  lexer.start = source;
+  lexer.next = source;
+  lexer.line = 1;
+
+  BUFFER_CLEAR();
 }
 
 Token lexer_next(void) {

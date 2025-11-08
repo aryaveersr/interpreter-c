@@ -1,5 +1,6 @@
 #include "chunk.h"
 #include "object.h"
+#include "op.h"
 #include "value.h"
 #include <stdint.h>
 #include <stdio.h>

@@ -2,6 +2,7 @@
 #include "chunk.h"
 #include "lexer.h"
 #include "object.h"
+#include "op.h"
 #include "value.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -883,6 +884,7 @@ static void statement_for(void) {
     int increment_start = current_chunk()->len;
 
     expression();
+
     emit_byte(OP_POP);
     emit_jump_back(loop_start);
     loop_start = increment_start;

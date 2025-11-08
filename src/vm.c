@@ -2,6 +2,7 @@
 #include "chunk.h"
 #include "mem.h"
 #include "object.h"
+#include "op.h"
 #include "table.h"
 #include "value.h"
 #include <stdarg.h>
