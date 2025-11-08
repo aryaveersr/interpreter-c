@@ -19,7 +19,7 @@ void table_free(Table *table) {
 }
 
 static Entry *find_entry(Entry *entries, int capacity, struct ObjString *key) {
-  uint32_t idx = key->hash % capacity;
+  uint32_t idx = key->hash & (capacity - 1);
   Entry *tombstone = NULL;
 
   while (true) {
@@ -37,7 +37,7 @@ static Entry *find_entry(Entry *entries, int capacity, struct ObjString *key) {
       return entry;
     }
 
-    idx = (idx + 1) % capacity;
+    idx = (idx + 1) & (capacity - 1);
   }
 }
 

@@ -42,7 +42,7 @@ static ObjString *strings_find(const char *chars, int len, uint32_t hash) {
     return NULL;
   }
 
-  uint32_t idx = hash % vm.strings.capacity;
+  uint32_t idx = hash & (vm.strings.capacity - 1);
   while (true) {
     Entry *entry = &vm.strings.entries[idx];
     if (entry->key == NULL) {
@@ -54,7 +54,7 @@ static ObjString *strings_find(const char *chars, int len, uint32_t hash) {
       return entry->key;
     }
 
-    idx = (idx + 1) % vm.strings.capacity;
+    idx = (idx + 1) & (vm.strings.capacity - 1);
   }
 }
 
