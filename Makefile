@@ -34,11 +34,11 @@ clean:
 	@rm -rf ./bin/*
 
 release: TARGET_FLAGS = $(RELEASE_FLAGS)
-profile: TARGET_NAME = RELEASE
+release: TARGET_NAME = RELEASE
 release: bin/lang.out
 
 debug: TARGET_FLAGS = $(DEBUG_FLAGS)
-profile: TARGET_NAME = DEBUG
+debug: TARGET_NAME = DEBUG
 debug: bin/lang.out
 
 profile: TARGET_FLAGS = $(PROFILE_FLAGS)
