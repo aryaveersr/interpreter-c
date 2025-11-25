@@ -63,5 +63,5 @@ IncludeCategories:
 # Other
 IndentCaseLabels: true
 KeepEmptyLinesAtTheStartOfBlocks: false
-MaxEmptyLinesToKeep: 2
+MaxEmptyLinesToKeep: 1
 ReflowComments: false
