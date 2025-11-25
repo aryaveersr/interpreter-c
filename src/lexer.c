@@ -120,33 +120,16 @@ static Token string(void) {
 }
 
 static TokenKind identifier_kind(void) {
-#define MATCH_KEYWORD(keyword, kind)                             \
+#define X(kind, keyword)                                         \
   if ((lexer.next - lexer.start) == (sizeof(keyword) - 1) &&     \
       strncmp(lexer.start, keyword, sizeof(keyword) - 1) == 0) { \
     return kind;                                                 \
   }
 
-  // clang-format off
-  MATCH_KEYWORD("fun", TOKEN_FUN)
-  else MATCH_KEYWORD("return", TOKEN_RETURN)
-  else MATCH_KEYWORD("if", TOKEN_IF)
-  else MATCH_KEYWORD("else", TOKEN_ELSE)
-  else MATCH_KEYWORD("for", TOKEN_FOR)
-  else MATCH_KEYWORD("while", TOKEN_WHILE)
-  else MATCH_KEYWORD("let", TOKEN_LET)
-  else MATCH_KEYWORD("class", TOKEN_CLASS)
-  else MATCH_KEYWORD("super", TOKEN_SUPER)
-  else MATCH_KEYWORD("self", TOKEN_SELF)
-  else MATCH_KEYWORD("print", TOKEN_PRINT)
-  else MATCH_KEYWORD("and", TOKEN_AND)
-  else MATCH_KEYWORD("or", TOKEN_OR)
-  else MATCH_KEYWORD("nil", TOKEN_NIL)
-  else MATCH_KEYWORD("true", TOKEN_TRUE)
-  else MATCH_KEYWORD("false", TOKEN_FALSE);
-  // clang-format on
+  KEYWORD_TOKENS(X)
+#undef X
 
   return TOKEN_IDENTIFIER;
-#undef MATCH_KEYWORD
 }
 
 static Token identifier(void) {
@@ -189,32 +172,20 @@ Token lexer_next(void) {
     return identifier();
   }
 
-#define SINGLE_CHAR_TOKEN(ch, kind) \
-  case ch:                          \
-    return emit_token(kind)
-
-#define EQUAL_TOKEN(ch, without_eq, with_eq) \
-  case ch:                                   \
-    return emit_token(match('=') ? (with_eq) : (without_eq))
-
   switch (ch) {
-    SINGLE_CHAR_TOKEN('(', TOKEN_LEFT_PAREN);
-    SINGLE_CHAR_TOKEN(')', TOKEN_RIGHT_PAREN);
-    SINGLE_CHAR_TOKEN('{', TOKEN_LEFT_BRACE);
-    SINGLE_CHAR_TOKEN('}', TOKEN_RIGHT_BRACE);
-    SINGLE_CHAR_TOKEN(':', TOKEN_COLON);
-    SINGLE_CHAR_TOKEN(';', TOKEN_SEMICOLON);
-    SINGLE_CHAR_TOKEN(',', TOKEN_COMMA);
-    SINGLE_CHAR_TOKEN('.', TOKEN_DOT);
-    SINGLE_CHAR_TOKEN('+', TOKEN_PLUS);
-    SINGLE_CHAR_TOKEN('-', TOKEN_MINUS);
-    SINGLE_CHAR_TOKEN('*', TOKEN_STAR);
-    SINGLE_CHAR_TOKEN('/', TOKEN_SLASH);
+#define X(x, y) \
+  case y:       \
+    return emit_token(x);
 
-    EQUAL_TOKEN('!', TOKEN_BANG, TOKEN_BANG_EQUAL);
-    EQUAL_TOKEN('=', TOKEN_EQUAL, TOKEN_EQUAL_EQUAL);
-    EQUAL_TOKEN('<', TOKEN_LESSER, TOKEN_LESSER_EQUAL);
-    EQUAL_TOKEN('>', TOKEN_GREATER, TOKEN_GREATER_EQUAL);
+    SINGLE_CHAR_TOKENS(X)
+#undef X
+
+#define X(x, y, z) \
+  case z:          \
+    return emit_token(match('=') ? (y) : (x));
+
+    MAYBE_EQ_TOKENS(X)
+#undef X
 
     case '"':
       return string();
@@ -222,15 +193,9 @@ Token lexer_next(void) {
     default:
       return emit_error("Unknown character.");
   }
-
-#undef SINGLE_CHAR_TOKEN
-#undef EQUAL_TOKEN
 }
 
 Token lexer_peek(void) {
-  if (BUFFER_IS_EMPTY()) {
-    lexer.buffer = lexer_next();
-  }
-
+  lexer.buffer = lexer_next();
   return lexer.buffer;
 }
