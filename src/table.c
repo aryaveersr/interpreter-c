@@ -1,29 +1,31 @@
 #include "table.h"
-#include "mem.h"
-#include "object.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
+#include "mem.h"
+#include "object.h"
+
 #define TABLE_MAX_LOAD 0.75
 
-void table_init(Table *table) {
+void table_init(Table* table) {
   table->len = 0;
   table->capacity = 0;
   table->entries = NULL;
 }
 
-void table_free(Table *table) {
+void table_free(Table* table) {
   MEM_FREE_ARRAY(Entry, table->entries, table->capacity);
   table_init(table);
 }
 
-static Entry *find_entry(Entry *entries, int capacity, struct ObjString *key) {
+static Entry* find_entry(Entry* entries, int capacity, struct ObjString* key) {
   uint32_t idx = key->hash & (capacity - 1);
-  Entry *tombstone = NULL;
+  Entry* tombstone = NULL;
 
   while (true) {
-    Entry *entry = &entries[idx];
+    Entry* entry = &entries[idx];
 
     if (entry->key == NULL) {
       if (IS_NIL(entry->value)) {
@@ -41,8 +43,8 @@ static Entry *find_entry(Entry *entries, int capacity, struct ObjString *key) {
   }
 }
 
-static void adjust_capacity(Table *table, int capacity) {
-  Entry *entries = MEM_ALLOC(Entry, capacity);
+static void adjust_capacity(Table* table, int capacity) {
+  Entry* entries = MEM_ALLOC(Entry, capacity);
 
   for (int i = 0; i < capacity; i++) {
     entries[i].key = NULL;
@@ -52,12 +54,12 @@ static void adjust_capacity(Table *table, int capacity) {
   table->len = 0;
 
   for (int i = 0; i < table->capacity; i++) {
-    Entry *entry = &table->entries[i];
+    Entry* entry = &table->entries[i];
     if (entry->key == NULL) {
       continue;
     }
 
-    Entry *dest = find_entry(entries, capacity, entry->key);
+    Entry* dest = find_entry(entries, capacity, entry->key);
 
     dest->key = entry->key;
     dest->value = entry->value;
@@ -69,13 +71,13 @@ static void adjust_capacity(Table *table, int capacity) {
   table->capacity = capacity;
 }
 
-bool table_set(Table *table, ObjString *key, Value value) {
+bool table_set(Table* table, ObjString* key, Value value) {
   if (table->len + 1 > table->capacity * TABLE_MAX_LOAD) {
     int capacity = MEM_GROW_CAPACITY(table->capacity);
     adjust_capacity(table, capacity);
   }
 
-  Entry *entry = find_entry(table->entries, table->capacity, key);
+  Entry* entry = find_entry(table->entries, table->capacity, key);
   bool is_new = entry->key == NULL;
 
   if (is_new && IS_NIL(entry->value)) {
@@ -88,12 +90,12 @@ bool table_set(Table *table, ObjString *key, Value value) {
   return is_new;
 }
 
-bool table_get(Table *table, ObjString *key, Value *dest) {
+bool table_get(Table* table, ObjString* key, Value* dest) {
   if (table->len == 0) {
     return false;
   }
 
-  Entry *entry = find_entry(table->entries, table->capacity, key);
+  Entry* entry = find_entry(table->entries, table->capacity, key);
   if (entry->key == NULL) {
     return false;
   }
@@ -102,12 +104,12 @@ bool table_get(Table *table, ObjString *key, Value *dest) {
   return true;
 }
 
-bool table_remove(Table *table, ObjString *key) {
+bool table_remove(Table* table, ObjString* key) {
   if (table->len == 0) {
     return false;
   }
 
-  Entry *entry = find_entry(table->entries, table->capacity, key);
+  Entry* entry = find_entry(table->entries, table->capacity, key);
   if (entry->key == NULL) {
     return false;
   }
@@ -118,9 +120,9 @@ bool table_remove(Table *table, ObjString *key) {
   return true;
 }
 
-void table_add_all(Table *src, Table *dest) {
+void table_add_all(Table* src, Table* dest) {
   for (int i = 0; i < src->capacity; i++) {
-    Entry *entry = &src->entries[i];
+    Entry* entry = &src->entries[i];
 
     if (entry->key != NULL) {
       table_set(dest, entry->key, entry->value);

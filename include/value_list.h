@@ -6,12 +6,12 @@
 typedef struct {
   int len;
   int capacity;
-  Value *values;
+  Value* values;
 } ValueList;
 
-void valuelist_init(ValueList *list);
-void valuelist_free(ValueList *list);
+void valuelist_init(ValueList* list);
+void valuelist_free(ValueList* list);
 
-void valuelist_write(ValueList *list, Value value);
+void valuelist_write(ValueList* list, Value value);
 
 #endif

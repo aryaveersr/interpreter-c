@@ -1,11 +1,12 @@
 #include "lexer.h"
+
 #include <ctype.h>
 #include <stdbool.h>
 #include <string.h>
 
 typedef struct {
-  const char *start;
-  const char *next;
+  const char* start;
+  const char* next;
   int line;
   Token buffer;
 } Lexer;
@@ -22,18 +23,18 @@ static Token emit_token(TokenKind kind) {
   token.kind = kind;
   token.line = lexer.line;
   token.start = lexer.start;
-  token.len = (int)(lexer.next - lexer.start);
+  token.len = (int) (lexer.next - lexer.start);
 
   return token;
 }
 
-static Token emit_error(const char *message) {
+static Token emit_error(const char* message) {
   Token token;
 
   token.kind = TOKEN_ERROR;
   token.line = lexer.line;
   token.start = message;
-  token.len = (int)strlen(message);
+  token.len = (int) strlen(message);
 
   return token;
 }
@@ -61,29 +62,29 @@ static void skip_whitespace(void) {
     char ch = *lexer.next;
 
     switch (ch) {
-    case ' ':
-    case '\r':
-    case '\t':
-      advance();
-      break;
+      case ' ':
+      case '\r':
+      case '\t':
+        advance();
+        break;
 
-    case '\n':
-      lexer.line += 1;
-      advance();
-      break;
+      case '\n':
+        lexer.line += 1;
+        advance();
+        break;
 
-    case '/':
-      if (lexer.next[1] == '/') {
-        while (*lexer.next != '\n' && !is_eof()) {
-          advance();
+      case '/':
+        if (lexer.next[1] == '/') {
+          while (*lexer.next != '\n' && !is_eof()) {
+            advance();
+          }
+        } else {
+          return;
         }
-      } else {
-        return;
-      }
-      break;
+        break;
 
-    default:
-      return;
+      default:
+        return;
     }
   }
 }
@@ -119,10 +120,10 @@ static Token string(void) {
 }
 
 static TokenKind identifier_kind(void) {
-#define MATCH_KEYWORD(keyword, kind)                                           \
-  if ((lexer.next - lexer.start) == (sizeof(keyword) - 1) &&                   \
-      strncmp(lexer.start, keyword, sizeof(keyword) - 1) == 0) {               \
-    return kind;                                                               \
+#define MATCH_KEYWORD(keyword, kind)                             \
+  if ((lexer.next - lexer.start) == (sizeof(keyword) - 1) &&     \
+      strncmp(lexer.start, keyword, sizeof(keyword) - 1) == 0) { \
+    return kind;                                                 \
   }
 
   // clang-format off
@@ -156,7 +157,7 @@ static Token identifier(void) {
   return emit_token(identifier_kind());
 }
 
-void lexer_init(const char *source) {
+void lexer_init(const char* source) {
   lexer.start = source;
   lexer.next = source;
   lexer.line = 1;
@@ -188,12 +189,12 @@ Token lexer_next(void) {
     return identifier();
   }
 
-#define SINGLE_CHAR_TOKEN(ch, kind)                                            \
-  case ch:                                                                     \
+#define SINGLE_CHAR_TOKEN(ch, kind) \
+  case ch:                          \
     return emit_token(kind)
 
-#define EQUAL_TOKEN(ch, without_eq, with_eq)                                   \
-  case ch:                                                                     \
+#define EQUAL_TOKEN(ch, without_eq, with_eq) \
+  case ch:                                   \
     return emit_token(match('=') ? (with_eq) : (without_eq))
 
   switch (ch) {
@@ -215,11 +216,11 @@ Token lexer_next(void) {
     EQUAL_TOKEN('<', TOKEN_LESSER, TOKEN_LESSER_EQUAL);
     EQUAL_TOKEN('>', TOKEN_GREATER, TOKEN_GREATER_EQUAL);
 
-  case '"':
-    return string();
+    case '"':
+      return string();
 
-  default:
-    return emit_error("Unknown character.");
+    default:
+      return emit_error("Unknown character.");
   }
 
 #undef SINGLE_CHAR_TOKEN

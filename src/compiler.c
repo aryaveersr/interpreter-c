@@ -1,14 +1,16 @@
 #include "compiler.h"
-#include "chunk.h"
-#include "lexer.h"
-#include "object.h"
-#include "op.h"
-#include "value.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "chunk.h"
+#include "lexer.h"
+#include "object.h"
+#include "op.h"
+#include "value.h"
 
 typedef struct {
   bool had_error;
@@ -18,14 +20,14 @@ typedef struct {
 
 typedef struct ClassCompiler {
   bool has_superclass;
-  struct ClassCompiler *parent;
+  struct ClassCompiler* parent;
 } ClassCompiler;
 
-static Compiler *current;
+static Compiler* current;
 static Parser parser;
-static ClassCompiler *current_class = NULL;
+static ClassCompiler* current_class = NULL;
 
-static void report_error_at(Token *token, const char *message) {
+static void report_error_at(Token* token, const char* message) {
   if (parser.panic) {
     return;
   }
@@ -36,22 +38,22 @@ static void report_error_at(Token *token, const char *message) {
   fprintf(stderr, "[Line:%d] Error", token->line);
 
   switch (token->kind) {
-  case TOKEN_ERROR:
-    break;
+    case TOKEN_ERROR:
+      break;
 
-  case TOKEN_EOF:
-    fprintf(stderr, " at end");
-    break;
+    case TOKEN_EOF:
+      fprintf(stderr, " at end");
+      break;
 
-  default:
-    fprintf(stderr, " at %.*s", token->len, token->start);
-    break;
+    default:
+      fprintf(stderr, " at %.*s", token->len, token->start);
+      break;
   }
 
   fprintf(stderr, ": %s\n", message);
 }
 
-static inline void report_error(const char *message) {
+static inline void report_error(const char* message) {
   report_error_at(&parser.last, message);
 }
 
@@ -79,7 +81,7 @@ static Token peek(void) {
   return next;
 }
 
-static void expect(TokenKind kind, const char *message) {
+static void expect(TokenKind kind, const char* message) {
   Token next = peek();
 
   if (next.kind == kind) {
@@ -102,8 +104,8 @@ static inline bool tokens_equal(Token lhs, Token rhs) {
   return (lhs.len == rhs.len) && (memcmp(lhs.start, rhs.start, lhs.len) == 0);
 }
 
-static inline Token synthetic_token(const char *text) {
-  return (Token){.start = text, .len = (int)strlen(text)};
+static inline Token synthetic_token(const char* text) {
+  return (Token){.start = text, .len = (int) strlen(text)};
 }
 
 static void recover(void) {
@@ -111,28 +113,28 @@ static void recover(void) {
 
   while (!match(TOKEN_EOF)) {
     switch (peek().kind) {
-    case TOKEN_CLASS:
-    case TOKEN_FUN:
-    case TOKEN_LET:
-    case TOKEN_FOR:
-    case TOKEN_IF:
-    case TOKEN_WHILE:
-    case TOKEN_PRINT:
-    case TOKEN_RETURN:
-      return;
+      case TOKEN_CLASS:
+      case TOKEN_FUN:
+      case TOKEN_LET:
+      case TOKEN_FOR:
+      case TOKEN_IF:
+      case TOKEN_WHILE:
+      case TOKEN_PRINT:
+      case TOKEN_RETURN:
+        return;
 
-    case TOKEN_SEMICOLON:
-      advance();
-      return;
+      case TOKEN_SEMICOLON:
+        advance();
+        return;
 
-    default:
-      advance();
-      continue;
+      default:
+        advance();
+        continue;
     }
   }
 }
 
-static inline Chunk *current_chunk(void) {
+static inline Chunk* current_chunk(void) {
   return &current->function->chunk;
 }
 
@@ -144,7 +146,7 @@ static void emit_const(Value value) {
   int idx = chunk_push_const(current_chunk(), value);
 
   emit_byte(OP_LOAD);
-  emit_byte((uint8_t)idx);
+  emit_byte((uint8_t) idx);
 }
 
 static int emit_jump(OpCode instruction) {
@@ -210,16 +212,16 @@ static void local_add(Token name) {
     return;
   }
 
-  Local *local = &current->locals[current->len++];
+  Local* local = &current->locals[current->len++];
 
   local->name = name;
   local->depth = -1;
   local->is_captured = false;
 }
 
-static int local_resolve(Compiler *compiler, Token *name) {
+static int local_resolve(Compiler* compiler, Token* name) {
   for (int i = compiler->len - 1; i >= 0; i--) {
-    Local *local = &compiler->locals[i];
+    Local* local = &compiler->locals[i];
 
     if (!tokens_equal(local->name, *name)) {
       continue;
@@ -235,11 +237,11 @@ static int local_resolve(Compiler *compiler, Token *name) {
   return -1;
 }
 
-static int upvalue_add(Compiler *compiler, uint8_t idx, bool is_local) {
+static int upvalue_add(Compiler* compiler, uint8_t idx, bool is_local) {
   int upvalue_len = compiler->function->upvalue_len;
 
   for (int i = 0; i < upvalue_len; i++) {
-    Upvalue *upvalue = &compiler->upvalues[i];
+    Upvalue* upvalue = &compiler->upvalues[i];
 
     if (upvalue->idx == idx && upvalue->is_local == is_local) {
       return i;
@@ -257,28 +259,28 @@ static int upvalue_add(Compiler *compiler, uint8_t idx, bool is_local) {
   return compiler->function->upvalue_len++;
 }
 
-static int upvalue_resolve(Compiler *compiler, Token *name) {
+static int upvalue_resolve(Compiler* compiler, Token* name) {
   if (compiler->parent != NULL) {
     int local = local_resolve(compiler->parent, name);
 
     if (local != -1) {
       compiler->parent->locals[local].is_captured = true;
-      return upvalue_add(compiler, (uint8_t)local, true);
+      return upvalue_add(compiler, (uint8_t) local, true);
     }
 
     int upvalue = upvalue_resolve(compiler->parent, name);
 
     if (upvalue != -1) {
-      return upvalue_add(compiler, (uint8_t)upvalue, false);
+      return upvalue_add(compiler, (uint8_t) upvalue, false);
     }
   }
 
   return -1;
 }
 
-static uint8_t identifier(Token *token) {
-  ObjString *name = string_copy(token->start, token->len);
-  return (uint8_t)chunk_push_const(current_chunk(), OBJ_VAL(name));
+static uint8_t identifier(Token* token) {
+  ObjString* name = string_copy(token->start, token->len);
+  return (uint8_t) chunk_push_const(current_chunk(), OBJ_VAL(name));
 }
 
 static uint8_t argument_list(void) {
@@ -306,7 +308,7 @@ static void variable_declare(void) {
   }
 
   for (int i = current->len - 1; i >= 0; i--) {
-    Local *local = &current->locals[i];
+    Local* local = &current->locals[i];
 
     if (local->depth != -1 && local->depth < current->depth) {
       break;
@@ -330,7 +332,7 @@ static void variable_define(uint8_t global) {
   emit_byte(global);
 }
 
-static uint8_t variable(const char *message) {
+static uint8_t variable(const char* message) {
   expect(TOKEN_IDENTIFIER, message);
   variable_declare();
 
@@ -341,7 +343,7 @@ static uint8_t variable(const char *message) {
   return identifier(&parser.last);
 }
 
-static void expression_variable(Token *name, bool can_assign) {
+static void expression_variable(Token* name, bool can_assign) {
   int idx = local_resolve(current, name);
   uint8_t set_op = OP_SET_LOCAL;
   uint8_t get_op = OP_GET_LOCAL;
@@ -361,10 +363,10 @@ static void expression_variable(Token *name, bool can_assign) {
   if (can_assign && match(TOKEN_EQUAL)) {
     expression();
     emit_byte(set_op);
-    emit_byte((uint8_t)idx);
+    emit_byte((uint8_t) idx);
   } else {
     emit_byte(get_op);
-    emit_byte((uint8_t)idx);
+    emit_byte((uint8_t) idx);
   }
 }
 
@@ -405,51 +407,51 @@ static void expression_primary(bool can_assign) {
   Token next = advance();
 
   switch (next.kind) {
-  case TOKEN_LEFT_PAREN:
-    expression();
-    expect(TOKEN_RIGHT_PAREN, "Expected closing parenthesis.");
-    break;
+    case TOKEN_LEFT_PAREN:
+      expression();
+      expect(TOKEN_RIGHT_PAREN, "Expected closing parenthesis.");
+      break;
 
-  case TOKEN_NIL:
-    emit_byte(OP_NIL);
-    break;
+    case TOKEN_NIL:
+      emit_byte(OP_NIL);
+      break;
 
-  case TOKEN_TRUE:
-    emit_byte(OP_TRUE);
-    break;
+    case TOKEN_TRUE:
+      emit_byte(OP_TRUE);
+      break;
 
-  case TOKEN_FALSE:
-    emit_byte(OP_FALSE);
-    break;
+    case TOKEN_FALSE:
+      emit_byte(OP_FALSE);
+      break;
 
-  case TOKEN_NUMBER:
-    emit_const(NUMBER_VAL(strtod(next.start, NULL)));
-    break;
+    case TOKEN_NUMBER:
+      emit_const(NUMBER_VAL(strtod(next.start, NULL)));
+      break;
 
-  case TOKEN_STRING:
-    emit_const(OBJ_VAL(string_copy(next.start + 1, next.len - 2)));
-    break;
+    case TOKEN_STRING:
+      emit_const(OBJ_VAL(string_copy(next.start + 1, next.len - 2)));
+      break;
 
-  case TOKEN_IDENTIFIER:
-    expression_variable(&next, can_assign);
-    break;
+    case TOKEN_IDENTIFIER:
+      expression_variable(&next, can_assign);
+      break;
 
-  case TOKEN_SELF:
-    if (current_class == NULL) {
-      report_error("Can't use 'self' outside of a class.");
-      return;
-    }
+    case TOKEN_SELF:
+      if (current_class == NULL) {
+        report_error("Can't use 'self' outside of a class.");
+        return;
+      }
 
-    expression_variable(&next, false);
-    break;
+      expression_variable(&next, false);
+      break;
 
-  case TOKEN_SUPER:
-    expression_super();
-    break;
+    case TOKEN_SUPER:
+      expression_super();
+      break;
 
-  default:
-    report_error("Expected expression.");
-    break;
+    default:
+      report_error("Expected expression.");
+      break;
   }
 }
 
@@ -491,21 +493,21 @@ static void expression_call(bool can_assign) {
 
 static void expression_unary(bool can_assign) {
   switch (peek().kind) {
-  case TOKEN_MINUS:
-    advance();
-    expression_call(false);
-    emit_byte(OP_NEGATE);
-    break;
+    case TOKEN_MINUS:
+      advance();
+      expression_call(false);
+      emit_byte(OP_NEGATE);
+      break;
 
-  case TOKEN_BANG:
-    advance();
-    expression_call(false);
-    emit_byte(OP_NOT);
-    break;
+    case TOKEN_BANG:
+      advance();
+      expression_call(false);
+      emit_byte(OP_NOT);
+      break;
 
-  default:
-    expression_call(can_assign);
-    break;
+    default:
+      expression_call(can_assign);
+      break;
   }
 }
 
@@ -533,9 +535,9 @@ static void expression_comparison(bool can_assign) {
   expression_term(can_assign);
   OpCode op = 0;
 
-#define SET_OP(token, opcode)                                                  \
-  case token:                                                                  \
-    op = opcode;                                                               \
+#define SET_OP(token, opcode) \
+  case token:                 \
+    op = opcode;              \
     break
 
   switch (peek().kind) {
@@ -546,8 +548,8 @@ static void expression_comparison(bool can_assign) {
     SET_OP(TOKEN_EQUAL_EQUAL, OP_EQUAL);
     SET_OP(TOKEN_BANG_EQUAL, OP_NOT_EQUAL);
 
-  default:
-    return;
+    default:
+      return;
   }
 #undef SET_OP
 
@@ -586,7 +588,7 @@ static void expression(void) {
   expression_or(true);
 }
 
-static void compiler_init(Compiler *compiler, TargetKind kind) {
+static void compiler_init(Compiler* compiler, TargetKind kind) {
   compiler->function = NULL;
   compiler->kind = kind;
   compiler->len = 0;
@@ -600,7 +602,7 @@ static void compiler_init(Compiler *compiler, TargetKind kind) {
     current->function->name = string_copy(parser.last.start, parser.last.len);
   }
 
-  Local *local = &compiler->locals[compiler->len++];
+  Local* local = &compiler->locals[compiler->len++];
   bool is_method = kind == TARGET_METHOD || kind == TARGET_CONSTRUCTOR;
 
   local->depth = 0;
@@ -609,8 +611,8 @@ static void compiler_init(Compiler *compiler, TargetKind kind) {
   local->name.len = is_method ? 4 : 0;
 }
 
-static ObjFunction *compiler_finish(void) {
-  ObjFunction *function = current->function;
+static ObjFunction* compiler_finish(void) {
+  ObjFunction* function = current->function;
 
   if (current->kind == TARGET_CONSTRUCTOR) {
     emit_byte(OP_GET_LOCAL);
@@ -622,8 +624,7 @@ static ObjFunction *compiler_finish(void) {
   emit_byte(OP_RETURN);
 
 #ifdef DUMP_CODE
-  chunk_print(&function->chunk,
-              function->name == NULL ? "<script>" : function->name->chars);
+  chunk_print(&function->chunk, function->name == NULL ? "<script>" : function->name->chars);
 #endif
 
   current = current->parent;
@@ -660,11 +661,11 @@ static void function(TargetKind kind) {
 
   statement();
 
-  ObjFunction *function = compiler_finish();
+  ObjFunction* function = compiler_finish();
   int idx = chunk_push_const(current_chunk(), OBJ_VAL(function));
 
   emit_byte(OP_CLOSURE);
-  emit_byte((uint8_t)idx);
+  emit_byte((uint8_t) idx);
 
   for (int i = 0; i < function->upvalue_len; i++) {
     emit_byte(compiler.upvalues[i].is_local ? 1 : 0);
@@ -764,22 +765,22 @@ static void declaration_class(void) {
 
 static void declaration(void) {
   switch (peek().kind) {
-  case TOKEN_CLASS:
-    declaration_class();
-    break;
+    case TOKEN_CLASS:
+      declaration_class();
+      break;
 
-  case TOKEN_FUN:
-    declaration_function();
-    break;
+    case TOKEN_FUN:
+      declaration_function();
+      break;
 
-  case TOKEN_LET:
-    advance();
-    declaration_variable();
-    break;
+    case TOKEN_LET:
+      advance();
+      declaration_variable();
+      break;
 
-  default:
-    statement();
-    break;
+    default:
+      statement();
+      break;
   }
 
   if (parser.panic) {
@@ -925,37 +926,37 @@ static void statement_return(void) {
 
 static void statement(void) {
   switch (peek().kind) {
-  case TOKEN_LEFT_BRACE:
-    statement_block();
-    break;
+    case TOKEN_LEFT_BRACE:
+      statement_block();
+      break;
 
-  case TOKEN_PRINT:
-    statement_print();
-    break;
+    case TOKEN_PRINT:
+      statement_print();
+      break;
 
-  case TOKEN_IF:
-    statement_if();
-    break;
+    case TOKEN_IF:
+      statement_if();
+      break;
 
-  case TOKEN_WHILE:
-    statement_while();
-    break;
+    case TOKEN_WHILE:
+      statement_while();
+      break;
 
-  case TOKEN_FOR:
-    statement_for();
-    break;
+    case TOKEN_FOR:
+      statement_for();
+      break;
 
-  case TOKEN_RETURN:
-    statement_return();
-    break;
+    case TOKEN_RETURN:
+      statement_return();
+      break;
 
-  default:
-    statement_expression();
-    break;
+    default:
+      statement_expression();
+      break;
   }
 }
 
-ObjFunction *compiler_compile(void) {
+ObjFunction* compiler_compile(void) {
   parser.had_error = false;
   parser.panic = false;
 
@@ -966,10 +967,10 @@ ObjFunction *compiler_compile(void) {
     declaration();
   }
 
-  ObjFunction *function = compiler_finish();
+  ObjFunction* function = compiler_finish();
   return parser.had_error ? NULL : function;
 }
 
-Compiler *compiler_current(void) {
+Compiler* compiler_current(void) {
   return current;
 }

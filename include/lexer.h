@@ -56,12 +56,12 @@ typedef enum {
 
 typedef struct {
   TokenKind kind;
-  const char *start;
+  const char* start;
   int len;
   int line;
 } Token;
 
-void lexer_init(const char *source);
+void lexer_init(const char* source);
 
 Token lexer_next(void);
 Token lexer_peek(void);

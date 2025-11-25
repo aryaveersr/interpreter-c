@@ -1,16 +1,17 @@
-#include "compiler.h"
-#include "lexer.h"
-#include "object.h"
-#include "vm.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static InterpretResult run_source(const char *source) {
+#include "compiler.h"
+#include "lexer.h"
+#include "object.h"
+#include "vm.h"
+
+static InterpretResult run_source(const char* source) {
   lexer_init(source);
 
-  ObjFunction *function = compiler_compile();
+  ObjFunction* function = compiler_compile();
 
   if (function == NULL) {
     return INTERPRET_COMPILE_ERROR;
@@ -35,8 +36,8 @@ static void repl(void) {
   }
 }
 
-static char *read_file(const char *path) {
-  FILE *file = fopen(path, "rb");
+static char* read_file(const char* path) {
+  FILE* file = fopen(path, "rb");
 
   if (file == NULL) {
     fprintf(stderr, "Could not open file: '%s'.\n", path);
@@ -53,7 +54,7 @@ static char *read_file(const char *path) {
     exit(EXIT_FAILURE);
   }
 
-  char *buffer = (char *)malloc(file_size + 1);
+  char* buffer = (char*) malloc(file_size + 1);
 
   if (buffer == NULL) {
     fprintf(stderr, "Not enough memory to read file: '%s'.\n", path);
@@ -62,7 +63,7 @@ static char *read_file(const char *path) {
 
   size_t bytes_read = fread(buffer, sizeof(char), file_size, file);
 
-  if (bytes_read < (size_t)file_size) {
+  if (bytes_read < (size_t) file_size) {
     fprintf(stderr, "Could not read file: '%s'.\n", path);
     exit(EXIT_FAILURE);
   }
@@ -73,8 +74,8 @@ static char *read_file(const char *path) {
   return buffer;
 }
 
-static void run_file(const char *path) {
-  char *source = read_file(path);
+static void run_file(const char* path) {
+  char* source = read_file(path);
   InterpretResult result = run_source(source);
   free(source);
 
@@ -84,7 +85,7 @@ static void run_file(const char *path) {
   }
 }
 
-int main(int argc, const char *argv[]) {
+int main(int argc, const char* argv[]) {
   vm_init();
 
   if (argc == 1) {

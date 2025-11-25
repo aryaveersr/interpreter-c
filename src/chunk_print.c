@@ -1,11 +1,12 @@
+#include <stdint.h>
+#include <stdio.h>
+
 #include "chunk.h"
 #include "object.h"
 #include "op.h"
 #include "value.h"
-#include <stdint.h>
-#include <stdio.h>
 
-static int instruction_const(const char *name, Chunk *chunk, int offset) {
+static int instruction_const(const char* name, Chunk* chunk, int offset) {
   uint8_t idx = chunk->code[offset + 1];
 
   printf("%-16s %4d '", name, idx);
@@ -15,23 +16,21 @@ static int instruction_const(const char *name, Chunk *chunk, int offset) {
   return offset + 2;
 }
 
-static int instruction_byte(const char *name, Chunk *chunk, int offset) {
+static int instruction_byte(const char* name, Chunk* chunk, int offset) {
   uint8_t slot = chunk->code[offset + 1];
   printf("%-16s %4d\n", name, slot);
   return offset + 2;
 }
 
-static int instruction_jump(const char *name, int sign, Chunk *chunk,
-                            int offset) {
-  uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8) |
-                  (uint16_t)chunk->code[offset + 2];
+static int instruction_jump(const char* name, int sign, Chunk* chunk, int offset) {
+  uint16_t jump = (uint16_t) (chunk->code[offset + 1] << 8) | (uint16_t) chunk->code[offset + 2];
 
   printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
 
   return offset + 3;
 }
 
-static int instruction_invoke(const char *name, Chunk *chunk, int offset) {
+static int instruction_invoke(const char* name, Chunk* chunk, int offset) {
   uint8_t constant = chunk->code[offset + 1];
   uint8_t arg_len = chunk->code[offset + 2];
 
@@ -42,34 +41,34 @@ static int instruction_invoke(const char *name, Chunk *chunk, int offset) {
   return offset + 3;
 }
 
-#define SIMPLE_INSTR(name)                                                     \
-  case name:                                                                   \
-    printf(#name "\n");                                                        \
+#define SIMPLE_INSTR(name) \
+  case name:               \
+    printf(#name "\n");    \
     return offset + 1
 
-#define CONST_INSTR(name)                                                      \
-  case name:                                                                   \
+#define CONST_INSTR(name) \
+  case name:              \
     return instruction_const(#name, chunk, offset)
 
-#define BYTE_INSTR(name)                                                       \
-  case name:                                                                   \
+#define BYTE_INSTR(name) \
+  case name:             \
     return instruction_byte(#name, chunk, offset)
 
-#define JUMP_INSTR(name, sign)                                                 \
-  case name:                                                                   \
+#define JUMP_INSTR(name, sign) \
+  case name:                   \
     return instruction_jump(#name, sign, chunk, offset)
 
-#define INVOKE_INSTR(name)                                                     \
-  case name:                                                                   \
+#define INVOKE_INSTR(name) \
+  case name:               \
     return instruction_invoke(#name, chunk, offset)
 
-int chunk_print_instr(Chunk *chunk, int offset) {
+int chunk_print_instr(Chunk* chunk, int offset) {
   printf("%04d %4d ", offset, chunk_get_line(chunk, offset));
   uint8_t instr = chunk->code[offset];
 
 #pragma clang diagnostic push
 #pragma clang diagnostic warning "-Wswitch-enum"
-  switch ((OpCode)instr) {
+  switch ((OpCode) instr) {
     SIMPLE_INSTR(OP_RETURN);
 
     SIMPLE_INSTR(OP_NEGATE);
@@ -124,36 +123,36 @@ int chunk_print_instr(Chunk *chunk, int offset) {
     INVOKE_INSTR(OP_INVOKE);
     INVOKE_INSTR(OP_SUPER_INVOKE);
 
-  case OP_CLOSURE: {
-    offset++;
-    uint8_t idx = chunk->code[offset++];
+    case OP_CLOSURE: {
+      offset++;
+      uint8_t idx = chunk->code[offset++];
 
-    printf("%-16s %4d ", "OP_CLOSURE", idx);
-    value_print(chunk->consts.values[idx]);
-    printf("\n");
+      printf("%-16s %4d ", "OP_CLOSURE", idx);
+      value_print(chunk->consts.values[idx]);
+      printf("\n");
 
-    ObjFunction *function = AS_FUNCTION(chunk->consts.values[idx]);
+      ObjFunction* function = AS_FUNCTION(chunk->consts.values[idx]);
 
-    for (int i = 0; i < function->upvalue_len; i++) {
-      int is_local = chunk->code[offset++];
-      int idx = chunk->code[offset++];
+      for (int i = 0; i < function->upvalue_len; i++) {
+        int is_local = chunk->code[offset++];
+        int idx = chunk->code[offset++];
 
-      printf("%04d      |                     %s %d\n", offset - 2,
-             is_local ? "Local" : "Upvalue", idx);
+        printf("%04d      |                     %s %d\n", offset - 2,
+               is_local ? "Local" : "Upvalue", idx);
+      }
+
+      return offset;
     }
 
-    return offset;
-  }
-
-  default:
-    printf("Unknown opcode: '%d'.\n", instr);
-    return offset + 1;
+    default:
+      printf("Unknown opcode: '%d'.\n", instr);
+      return offset + 1;
   }
 #pragma clang diagnostic pop
 #undef SIMPLE_INSTR
 }
 
-void chunk_print(Chunk *chunk, const char *name) {
+void chunk_print(Chunk* chunk, const char* name) {
   printf("== %s (length: %03d) ==\n", name, chunk->len);
 
   for (int offset = 0; offset < chunk->len;) {

@@ -1,10 +1,11 @@
 #ifndef COMPILER_H
 #define COMPILER_H
 
-#include "lexer.h"
-#include "object.h"
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "lexer.h"
+#include "object.h"
 
 #define DUMP_CODE
 
@@ -22,7 +23,7 @@ typedef enum {
 } TargetKind;
 
 struct Compiler {
-  ObjFunction *function;
+  ObjFunction* function;
   TargetKind kind;
 
   Local locals[UINT8_MAX + 1];
@@ -31,12 +32,12 @@ struct Compiler {
 
   Upvalue upvalues[UINT8_MAX + 1];
 
-  struct Compiler *parent;
+  struct Compiler* parent;
 };
 
 typedef struct Compiler Compiler;
 
-ObjFunction *compiler_compile(void);
-Compiler *compiler_current(void);
+ObjFunction* compiler_compile(void);
+Compiler* compiler_current(void);
 
 #endif
