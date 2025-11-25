@@ -10,34 +10,9 @@
 
 #define GC_HEAP_GROW_FACTOR 2
 
-void *mem_realloc(void *ptr, size_t old_size, size_t new_size) {
-  vm.bytes_allocated += new_size - old_size;
-
-  if (new_size > old_size) {
-#ifdef STRESS_GC
-    collect_garbage();
-#endif
-  }
-
-  if (vm.bytes_allocated > vm.gc_target) {
-    collect_garbage();
-  }
-
-  if (new_size == 0) {
-    free(ptr);
-    return NULL;
-  }
-
-  void *result = realloc(ptr, new_size);
-
-  if (result == NULL) {
-    exit(EXIT_FAILURE);
-  }
-
-  return result;
-}
-
+// Forward declarations.
 static void mark_value(Value value);
+static void mark_object(Obj *object);
 
 static void mark_table(Table *table) {
   for (int i = 0; i < table->capacity; i++) {
@@ -48,7 +23,7 @@ static void mark_table(Table *table) {
   }
 }
 
-void mark_object(Obj *object) {
+static void mark_object(Obj *object) {
   if (object == NULL || object->is_marked) {
     return;
   }
@@ -216,7 +191,35 @@ static void table_remove_unreachable(Table *table) {
   }
 }
 
+void *mem_realloc(void *ptr, size_t old_size, size_t new_size) {
+  vm.bytes_allocated += new_size - old_size;
+
+#ifdef STRESS_GC
+  if (new_size > old_size) {
+    collect_garbage();
+  }
+#endif
+
+  if (vm.bytes_allocated > vm.gc_target) {
+    collect_garbage();
+  }
+
+  if (new_size == 0) {
+    free(ptr);
+    return NULL;
+  }
+
+  void *result = realloc(ptr, new_size);
+
+  if (result == NULL) {
+    exit(EXIT_FAILURE);
+  }
+
+  return result;
+}
+
 void collect_garbage(void) {
+
 #ifdef LOG_GC
   printf("-- GC Begin\n");
   size_t starting_size = vm.bytes_allocated;

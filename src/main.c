@@ -79,7 +79,7 @@ static void run_file(const char *path) {
   free(source);
 
   if (result != INTERPRET_OK) {
-    fprintf(stderr, "Interpreter returned error code: %d.", result);
+    fprintf(stderr, "Interpreter returned error code: %d.\n", result);
     exit(EXIT_FAILURE);
   }
 }

@@ -1,7 +1,6 @@
 #ifndef MEM_H
 #define MEM_H
 
-#include "value.h"
 #include <stdlib.h>
 
 // #define STRESS_GC
@@ -19,6 +18,5 @@
 void *mem_realloc(void *ptr, size_t old_size, size_t new_size);
 
 void collect_garbage(void);
-void mark_object(Obj *object);
 
 #endif
