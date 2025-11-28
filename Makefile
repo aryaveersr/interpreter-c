@@ -1,8 +1,8 @@
 ## Configuration START.
 CC := clang
 
-CFLAGS := -std=c18 -I./include
-CFLAGS += -Wall -Wextra -Wpedantic -Wimplicit-fallthrough
+CFLAGS := -Iinclude
+CFLAGS += -Wall -Wextra -Wpedantic
 
 PROFILE_FLAGS := -g -O3 -fno-omit-frame-pointer
 DEBUG_FLAGS   := -g -O0
@@ -11,45 +11,38 @@ RELEASE_FLAGS := -O3
 
 ## Files.
 SRCS := $(notdir $(wildcard src/*.c))
-OBJS := $(addprefix bin/, $(SRCS:.c=.o))
-DEPS := $(wildcard bin/*.d)
+OBJS := $(addprefix bin/objs/, $(SRCS:.c=.o))
+DEPS := $(wildcard bin/deps/*.d)
 
-TARGET_NAME  :=
 TARGET_FLAGS :=
 
 -include $(DEPS)
 
-bin/%.o: src/%.c
-	@echo -n "Building \033[4;37m$<\033[0m\n"
-	@$(CC) $(CFLAGS) $(TARGET_FLAGS) -MMD -MP -c $(patsubst %.o, %.c, $(subst bin/, src/, $@)) -o $@
-	@echo "\033[1;92mDONE\033[0m"
+bin/objs/%.o: src/%.c
+	$(CC) $(CFLAGS) $(TARGET_FLAGS) -MP -c $< -o $@ -MMD -MF $(patsubst %.o, %.d, $(subst bin/objs/, bin/deps/, $@))
 
 bin/lang.out: $(OBJS)
-	@echo -n "Linking\n"
-	@$(CC) $(CFLAGS) $(TARGET_FLAGS) $^ -o $@
-	@echo "\033[1;92mDONE\033[0m"
-	@echo "Built for target: '$(TARGET_NAME)' at \033[4;37m$@\033[0m"
+	$(CC) $(CFLAGS) $(TARGET_FLAGS) $^ -o $@
 
 ## Phony targets.
 .PHONY: clean release debug profile check-iwyu check-clang-tidy
 
 # Clean the build directory.
 clean:
-	@rm -rf ./bin/*
+	rm -rf ./bin/objs/*
+	rm -rf ./bin/deps/*
+	rm -rf ./bin/lang.out
 
 # Release build.
 release: TARGET_FLAGS = $(RELEASE_FLAGS)
-release: TARGET_NAME = RELEASE
 release: bin/lang.out
 
 # Debug build.
 debug: TARGET_FLAGS = $(DEBUG_FLAGS)
-debug: TARGET_NAME = DEBUG
 debug: bin/lang.out
 
 # Profiling build.
 profile: TARGET_FLAGS = $(PROFILE_FLAGS)
-profile: TARGET_NAME = PROFILE
 profile: bin/lang.out
 
 ## Check includes.
