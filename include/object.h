@@ -116,10 +116,13 @@ ObjClass* class_new(ObjString* name);
 ObjInstance* instance_new(ObjClass* class);
 ObjBoundMethod* boundmethod_new(Value receiver, ObjClosure* method);
 
-__attribute__((unused)) //
-static inline bool
-obj_is_kind(Value value, ObjKind kind) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+
+static inline bool obj_is_kind(Value value, ObjKind kind) {
   return IS_OBJ(value) && (AS_OBJ(value)->kind == kind);
 }
+
+#pragma clang diagnostic pop
 
 #endif

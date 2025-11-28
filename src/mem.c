@@ -196,12 +196,12 @@ void* mem_realloc(void* ptr, size_t old_size, size_t new_size) {
 
 #ifdef STRESS_GC
   if (new_size > old_size) {
-    collect_garbage();
+    mem_collect();
   }
 #endif
 
   if (vm.bytes_allocated > vm.gc_target) {
-    collect_garbage();
+    mem_collect();
   }
 
   if (new_size == 0) {
@@ -218,7 +218,7 @@ void* mem_realloc(void* ptr, size_t old_size, size_t new_size) {
   return result;
 }
 
-void collect_garbage(void) {
+void mem_collect(void) {
 #ifdef LOG_GC
   printf("-- GC Begin\n");
   size_t starting_size = vm.bytes_allocated;

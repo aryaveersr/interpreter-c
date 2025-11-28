@@ -9,8 +9,6 @@ bool value_is_equal(Value a, Value b) {
     return false;
   }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic warning "-Wswitch-enum"
   switch (a.kind) {
     case VAL_NIL:
       return true;
@@ -24,5 +22,4 @@ bool value_is_equal(Value a, Value b) {
     case VAL_OBJ:
       return AS_OBJ(a) == AS_OBJ(b);
   }
-#pragma clang diagnostic pop
 }

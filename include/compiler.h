@@ -22,7 +22,7 @@ typedef enum {
   TARGET_CONSTRUCTOR,
 } TargetKind;
 
-struct Compiler {
+typedef struct Compiler {
   ObjFunction* function;
   TargetKind kind;
 
@@ -33,9 +33,7 @@ struct Compiler {
   Upvalue upvalues[UINT8_MAX + 1];
 
   struct Compiler* parent;
-};
-
-typedef struct Compiler Compiler;
+} Compiler;
 
 ObjFunction* compiler_compile(void);
 Compiler* compiler_current(void);
