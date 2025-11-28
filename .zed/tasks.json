@@ -1,7 +1,7 @@
 [
   {
     "label": "Run binary",
-    "command": "make debug && ./bin/lang-dbg.out",
+    "command": "make debug && ./bin/lang.out",
     "show_summary": false
   }
 ]
